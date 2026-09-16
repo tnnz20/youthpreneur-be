@@ -58,7 +58,7 @@ func Load() Config {
 	v.SetDefault("app.log_level", "info")
 	v.SetDefault("app.environment", "development")
 	v.SetDefault("app.version", "dev")
-	v.SetDefault("app.shutdown_timeout", "10s")
+	v.SetDefault("app.shutdown_timeout", defaultShutdownTimeout)
 	v.SetDefault("postgres.host", "localhost")
 	v.SetDefault("postgres.port", 5432)
 	v.SetDefault("postgres.user", "postgres")
