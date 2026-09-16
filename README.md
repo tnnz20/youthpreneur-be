@@ -63,6 +63,9 @@ Configuration is read from environment variables through Viper.
 | --- | --- | --- |
 | `APP_ADDR` | `:8080` | HTTP listen address |
 | `APP_LOG_LEVEL` | `info` | Log level: `debug`, `info`, `warn`, or `error` |
+| `APP_ENVIRONMENT` | `development` | Application environment |
+| `APP_VERSION` | `dev` | Application version reported at startup |
+| `APP_SHUTDOWN_TIMEOUT` | `10s` | Graceful shutdown timeout for `SIGINT`/`SIGTERM` |
 | `POSTGRES_HOST` | `localhost` | PostgreSQL host |
 | `POSTGRES_PORT` | `5432` | PostgreSQL port |
 | `POSTGRES_USER` | `postgres` | PostgreSQL user |

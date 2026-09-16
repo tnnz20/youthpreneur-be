@@ -2,15 +2,19 @@ package config
 
 import (
 	"strings"
+	"time"
 
 	"github.com/spf13/viper"
 )
 
 // Config contains application and PostgreSQL settings loaded from the environment.
 type Config struct {
-	Addr     string
-	LogLevel string
-	Postgres PostgresConfig
+	Addr            string
+	LogLevel        string
+	Environment     string
+	Version         string
+	ShutdownTimeout time.Duration
+	Postgres        PostgresConfig
 }
 
 // PostgresConfig contains PostgreSQL connection settings.
@@ -23,11 +27,16 @@ type PostgresConfig struct {
 }
 
 // Load reads application settings from environment variables and defaults.
+const defaultShutdownTimeout = 10 * time.Second
+
 func Load() Config {
 	v := viper.New()
 
 	v.SetDefault("app.addr", ":8080")
 	v.SetDefault("app.log_level", "info")
+	v.SetDefault("app.environment", "development")
+	v.SetDefault("app.version", "dev")
+	v.SetDefault("app.shutdown_timeout", "10s")
 	v.SetDefault("postgres.host", "localhost")
 	v.SetDefault("postgres.port", 5432)
 	v.SetDefault("postgres.user", "postgres")
@@ -40,15 +49,26 @@ func Load() Config {
 
 	v.MustBindEnv("app.addr", "APP_ADDR")
 	v.MustBindEnv("app.log_level", "APP_LOG_LEVEL")
+	v.MustBindEnv("app.environment", "APP_ENVIRONMENT")
+	v.MustBindEnv("app.version", "APP_VERSION")
+	v.MustBindEnv("app.shutdown_timeout", "APP_SHUTDOWN_TIMEOUT")
 	v.MustBindEnv("postgres.host", "POSTGRES_HOST")
 	v.MustBindEnv("postgres.port", "POSTGRES_PORT")
 	v.MustBindEnv("postgres.user", "POSTGRES_USER")
 	v.MustBindEnv("postgres.password", "POSTGRES_PASSWORD")
 	v.MustBindEnv("postgres.database", "POSTGRES_DB")
 
+	shutdownTimeout := v.GetDuration("app.shutdown_timeout")
+	if shutdownTimeout <= 0 {
+		shutdownTimeout = defaultShutdownTimeout
+	}
+
 	return Config{
-		Addr:     v.GetString("app.addr"),
-		LogLevel: v.GetString("app.log_level"),
+		Addr:            v.GetString("app.addr"),
+		LogLevel:        v.GetString("app.log_level"),
+		Environment:     v.GetString("app.environment"),
+		Version:         v.GetString("app.version"),
+		ShutdownTimeout: shutdownTimeout,
 		Postgres: PostgresConfig{
 			Host:     v.GetString("postgres.host"),
 			Port:     v.GetInt("postgres.port"),
