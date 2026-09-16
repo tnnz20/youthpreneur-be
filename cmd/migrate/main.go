@@ -37,7 +37,12 @@ func run(args []string) error {
 		return fmt.Errorf("read embedded migrations: %w", err)
 	}
 
-	m, err := migrate.NewWithSourceInstance("iofs", source, migrationDSN(cfg.Postgres))
+	dsn, err := migrationDSN(cfg.Postgres.DSN())
+	if err != nil {
+		return fmt.Errorf("build migration dsn: %w", err)
+	}
+
+	m, err := migrate.NewWithSourceInstance("iofs", source, dsn)
 	if err != nil {
 		return fmt.Errorf("open migration client: %w", err)
 	}
@@ -115,16 +120,18 @@ func printVersion(m *migrate.Migrate) error {
 }
 
 // migrationDSN rewrites the application DSN to the scheme registered by the
-// golang-migrate pgx driver. That driver still connects through pgx.
-func migrationDSN(cfg config.PostgresConfig) string {
-	parsed, err := url.Parse(cfg.DSN())
+// golang-migrate pgx driver. That driver still connects through pgx. A DSN that
+// cannot be parsed is reported instead of being passed through unchanged, since
+// the raw postgres:// scheme is not registered with golang-migrate.
+func migrationDSN(dsn string) (string, error) {
+	parsed, err := url.Parse(dsn)
 	if err != nil {
-		return cfg.DSN()
+		return "", fmt.Errorf("parse postgres dsn: %w", err)
 	}
 
 	parsed.Scheme = "pgx5"
 
-	return parsed.String()
+	return parsed.String(), nil
 }
 
 func closeMigrator(m *migrate.Migrate) {

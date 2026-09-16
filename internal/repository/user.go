@@ -39,4 +39,8 @@ type UserRepository interface {
 	UpdateStatus(ctx context.Context, publicID string, isActive bool, updatedAt int64) (entity.User, error)
 	// UpdatePassword replaces the password hash of the active user.
 	UpdatePassword(ctx context.Context, publicID string, passwordHash string, updatedAt int64) error
+	// ChangePassword atomically replaces the password hash only when the stored
+	// hash still equals currentHash. A zero-row update returns ErrUserNotFound,
+	// which callers map to invalid credentials.
+	ChangePassword(ctx context.Context, publicID string, currentHash string, newPasswordHash string, updatedAt int64) error
 }

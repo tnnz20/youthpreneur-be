@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"regexp"
+	"strings"
 	"testing"
 
 	"golang.org/x/crypto/bcrypt"
@@ -41,6 +42,9 @@ type fakeUserRepository struct {
 	updatePasswordErr error
 	lastPassword      string
 	lastPasswordID    string
+
+	changePasswordErr error
+	lastCurrentHash   string
 }
 
 func (f *fakeUserRepository) CreateUser(_ context.Context, user entity.User) (entity.User, error) {
@@ -128,6 +132,21 @@ func (f *fakeUserRepository) UpdatePassword(
 	return f.updatePasswordErr
 }
 
+func (f *fakeUserRepository) ChangePassword(
+	_ context.Context,
+	publicID string,
+	currentHash string,
+	newPasswordHash string,
+	updatedAt int64,
+) error {
+	f.lastPasswordID = publicID
+	f.lastCurrentHash = currentHash
+	f.lastPassword = newPasswordHash
+	f.lastUpdatedAt = updatedAt
+
+	return f.changePasswordErr
+}
+
 func validCreateInput() usecase.CreateUserInput {
 	return usecase.CreateUserInput{
 		Email:    "  Alice@Example.COM ",
@@ -176,6 +195,37 @@ func TestCreateUserGeneratesPublicIDHashesPasswordAndNormalizesInput(t *testing.
 	}
 	if user.Profile.Phone != "08123456789" || user.Profile.Address != "Jalan Mawar 1" {
 		t.Errorf("profile contact = %+v, want trimmed phone and address", user.Profile)
+	}
+}
+
+func TestCreateUserIgnoresRequestedRole(t *testing.T) {
+	repo := &fakeUserRepository{}
+	uc := usecase.NewUserUseCase(repo)
+
+	input := validCreateInput()
+	input.Role = string(entity.RoleAdmin)
+
+	user, err := uc.CreateUser(context.Background(), input)
+	if err != nil {
+		t.Fatalf("CreateUser() error = %v", err)
+	}
+	if user.Role != entity.RoleMember {
+		t.Errorf("role = %q, want %q when request asks for admin", user.Role, entity.RoleMember)
+	}
+}
+
+func TestCreateUserRejectsPasswordOverBcryptLimit(t *testing.T) {
+	repo := &fakeUserRepository{}
+	uc := usecase.NewUserUseCase(repo)
+
+	input := validCreateInput()
+	input.Password = strings.Repeat("a", 73)
+
+	if _, err := uc.CreateUser(context.Background(), input); !errors.Is(err, usecase.ErrBadRequest) {
+		t.Fatalf("CreateUser() error = %v, want ErrBadRequest", err)
+	}
+	if repo.createCalls != 0 {
+		t.Errorf("create calls = %d, want 0", repo.createCalls)
 	}
 }
 
@@ -232,10 +282,6 @@ func TestCreateUserValidation(t *testing.T) {
 			input: usecase.CreateUserInput{Email: "alice@example.com", Password: "short"},
 		},
 		{
-			name:  "unknown role",
-			input: usecase.CreateUserInput{Email: "alice@example.com", Password: "secret123", Role: "owner"},
-		},
-		{
 			name: "unknown gender",
 			input: usecase.CreateUserInput{
 				Email:    "alice@example.com",
@@ -250,8 +296,10 @@ func TestCreateUserValidation(t *testing.T) {
 			repo := &fakeUserRepository{}
 			uc := usecase.NewUserUseCase(repo)
 
-			if _, err := uc.CreateUser(context.Background(), tc.input); !errors.Is(err, usecase.ErrInvalidInput) {
-				t.Fatalf("CreateUser() error = %v, want ErrInvalidInput", err)
+			if _, err := uc.CreateUser(context.Background(), tc.input); !errors.Is(err, usecase.ErrBadRequest) {
+				t.Fatalf("CreateUser() error = %v, want ErrBadRequest", err)
+			} else if strings.Contains(err.Error(), "usecase:") {
+				t.Errorf("validation error leaks internal sentinel prefix: %v", err)
 			}
 			if repo.createCalls != 0 {
 				t.Errorf("create calls = %d, want 0", repo.createCalls)
@@ -318,8 +366,8 @@ func TestFindUsersRejectsUnknownGender(t *testing.T) {
 	repo := &fakeUserRepository{}
 	uc := usecase.NewUserUseCase(repo)
 
-	if _, err := uc.FindUsers(context.Background(), usecase.FindUsersInput{Gender: "other"}); !errors.Is(err, usecase.ErrInvalidInput) {
-		t.Fatalf("FindUsers() error = %v, want ErrInvalidInput", err)
+	if _, err := uc.FindUsers(context.Background(), usecase.FindUsersInput{Gender: "other"}); !errors.Is(err, usecase.ErrBadRequest) {
+		t.Fatalf("FindUsers() error = %v, want ErrBadRequest", err)
 	}
 }
 
@@ -387,8 +435,32 @@ func TestChangePasswordStoresNewHash(t *testing.T) {
 	if repo.lastPasswordID != "YTP-000001" {
 		t.Errorf("updated public id = %q, want YTP-000001", repo.lastPasswordID)
 	}
+	if repo.lastCurrentHash != string(hash) {
+		t.Error("atomic change did not pass the stored hash as the predicate")
+	}
 	if err := bcrypt.CompareHashAndPassword([]byte(repo.lastPassword), []byte("new-secret")); err != nil {
 		t.Errorf("stored hash does not match new password: %v", err)
+	}
+}
+
+func TestChangePasswordMapsLostUpdateToInvalidCredentials(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("correct-horse"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("hash fixture: %v", err)
+	}
+
+	repo := &fakeUserRepository{
+		findUser:          entity.User{PublicID: "YTP-000001", Password: string(hash)},
+		changePasswordErr: repository.ErrUserNotFound,
+	}
+	uc := usecase.NewUserUseCase(repo)
+
+	err = uc.ChangePassword(context.Background(), "YTP-000001", usecase.ChangePasswordInput{
+		CurrentPassword: "correct-horse",
+		NewPassword:     "new-secret",
+	})
+	if !errors.Is(err, usecase.ErrInvalidCredentials) {
+		t.Fatalf("ChangePassword() error = %v, want ErrInvalidCredentials on lost update", err)
 	}
 }
 
@@ -400,8 +472,8 @@ func TestChangePasswordValidatesNewPasswordBeforeLookup(t *testing.T) {
 		CurrentPassword: "correct-horse",
 		NewPassword:     "short",
 	})
-	if !errors.Is(err, usecase.ErrInvalidInput) {
-		t.Fatalf("ChangePassword() error = %v, want ErrInvalidInput", err)
+	if !errors.Is(err, usecase.ErrBadRequest) {
+		t.Fatalf("ChangePassword() error = %v, want ErrBadRequest", err)
 	}
 }
 
@@ -433,7 +505,7 @@ func TestUpdateProfileRejectsUnknownGender(t *testing.T) {
 	repo := &fakeUserRepository{}
 	uc := usecase.NewUserUseCase(repo)
 
-	if _, err := uc.UpdateProfile(context.Background(), "YTP-000001", entity.Profile{Gender: "other"}); !errors.Is(err, usecase.ErrInvalidInput) {
-		t.Fatalf("UpdateProfile() error = %v, want ErrInvalidInput", err)
+	if _, err := uc.UpdateProfile(context.Background(), "YTP-000001", entity.Profile{Gender: "other"}); !errors.Is(err, usecase.ErrBadRequest) {
+		t.Fatalf("UpdateProfile() error = %v, want ErrBadRequest", err)
 	}
 }

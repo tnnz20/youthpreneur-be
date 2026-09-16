@@ -14,6 +14,14 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		os.Exit(1)
+	}
+}
+
+// run owns the server lifecycle so every exit path returns through the deferred
+// cleanup instead of calling os.Exit and skipping it.
+func run() error {
 	cfg := config.Load()
 	logger := config.NewLogger(cfg.LogLevel)
 
@@ -23,7 +31,7 @@ func main() {
 	mux, db, err := config.Bootstrap(ctx, cfg, logger)
 	if err != nil {
 		logger.Error("bootstrap failed", "error", err)
-		os.Exit(1)
+		return err
 	}
 	defer func() {
 		if err := db.Close(); err != nil {
@@ -51,7 +59,7 @@ func main() {
 	case err := <-serveErr:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("server stopped", "error", err)
-			os.Exit(1)
+			return err
 		}
 	case <-ctx.Done():
 		logger.Info("server shutting down", "timeout", cfg.ShutdownTimeout)
@@ -59,7 +67,9 @@ func main() {
 		defer cancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			logger.Error("graceful shutdown failed", "error", err)
-			os.Exit(1)
+			return err
 		}
 	}
+
+	return nil
 }

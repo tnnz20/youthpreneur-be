@@ -143,6 +143,13 @@ func TestUserRepositoryIntegration(t *testing.T) {
 		t.Fatalf("UpdatePassword() error = %v", err)
 	}
 
+	if err := repo.ChangePassword(ctx, publicID, "stale-hash", "ignored", now+3); !errors.Is(err, ErrUserNotFound) {
+		t.Errorf("ChangePassword() with stale hash error = %v, want ErrUserNotFound", err)
+	}
+	if err := repo.ChangePassword(ctx, publicID, "new-hash", "newer-hash", now+3); err != nil {
+		t.Fatalf("ChangePassword() error = %v", err)
+	}
+
 	if err := repo.SoftDeleteUser(ctx, publicID, now+4); err != nil {
 		t.Fatalf("SoftDeleteUser() error = %v", err)
 	}

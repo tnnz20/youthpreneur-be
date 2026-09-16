@@ -182,6 +182,53 @@ func TestCreateUserRejectsInvalidBirthDate(t *testing.T) {
 	}
 }
 
+func TestCreateUserRejectsFutureBirthDate(t *testing.T) {
+	rec := serve(t, newTestRouter(&fakeUserUseCase{}), http.MethodPost, "/users", `{
+		"email": "alice@example.com",
+		"password": "secret123",
+		"birth_date": "2999-01-01"
+	}`)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestCreateUserRejectsOversizedBody(t *testing.T) {
+	body := `{"email":"alice@example.com","password":"secret123","full_name":"` +
+		strings.Repeat("a", (1<<20)+1) + `"}`
+
+	rec := serve(t, newTestRouter(&fakeUserUseCase{}), http.MethodPost, "/users", body)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestCreateUserReturnsSafeValidationMessage(t *testing.T) {
+	uc := &fakeUserUseCase{createErr: usecase.BadRequestError{Message: "invalid email"}}
+
+	rec := serve(t, newTestRouter(uc), http.MethodPost, "/users", `{
+		"email": "not-an-email",
+		"password": "secret123"
+	}`)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+
+	var body model.ErrorResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.Error != "invalid email" {
+		t.Errorf("error = %q, want %q", body.Error, "invalid email")
+	}
+	if strings.Contains(body.Error, "usecase:") {
+		t.Errorf("error leaks internal sentinel prefix: %q", body.Error)
+	}
+}
+
 func TestGetUserReturnsBirthDate(t *testing.T) {
 	born := time.Date(1995, time.March, 14, 0, 0, 0, 0, time.UTC)
 	uc := &fakeUserUseCase{getResult: entity.User{

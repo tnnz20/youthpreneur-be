@@ -289,6 +289,29 @@ func (r userRepository) UpdatePassword(
 	return requireAffected(result)
 }
 
+func (r userRepository) ChangePassword(
+	ctx context.Context,
+	publicID string,
+	currentHash string,
+	newPasswordHash string,
+	updatedAt int64,
+) error {
+	result, err := r.db.ExecContext(ctx, `
+		UPDATE users
+		SET password = $3, updated_at = $4
+		WHERE public_id = $1 AND password = $2 AND deleted_at IS NULL`,
+		publicID,
+		currentHash,
+		newPasswordHash,
+		updatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("change user password: %w", err)
+	}
+
+	return requireAffected(result)
+}
+
 // scanUser maps one joined user/profile row. scan is sql.Row.Scan or
 // sql.Rows.Scan.
 func scanUser(scan func(dest ...any) error) (entity.User, error) {

@@ -17,28 +17,57 @@ import (
 )
 
 const (
-	publicIDPrefix    = "YTP-"
-	publicIDDigits    = 6
-	publicIDAttempts  = 5
+	publicIDPrefix   = "YTP-"
+	publicIDDigits   = 6
+	publicIDAttempts = 5
+	// publicIDMax is the exclusive upper bound of the six-digit suffix, so the
+	// public ID space holds 10^6 values. It is a lookup handle, not an
+	// authentication credential, and must not be treated as secret.
 	publicIDMax       = 1000000
 	minPasswordLength = 8
+	// maxPasswordLength is bcrypt's maximum input size in bytes. Longer inputs
+	// are rejected instead of being silently truncated.
+	maxPasswordLength = 72
 	defaultListLimit  = 20
 	maxListLimit      = 100
 )
 
 // Usecase errors are returned to the delivery layer for HTTP status mapping.
 var (
-	// ErrInvalidInput indicates request data failed validation.
-	ErrInvalidInput = errors.New("usecase: invalid input")
+	// ErrBadRequest indicates request data failed validation. The delivery
+	// layer maps it to HTTP 400 and surfaces BadRequestError.Message.
+	ErrBadRequest = errors.New("usecase: bad request")
 	// ErrUserNotFound indicates the user does not exist or is soft deleted.
 	ErrUserNotFound = errors.New("usecase: user not found")
 	// ErrEmailTaken indicates the email is already registered.
 	ErrEmailTaken = errors.New("usecase: email already registered")
 	// ErrInvalidCredentials indicates the supplied current password is wrong.
 	ErrInvalidCredentials = errors.New("usecase: invalid credentials")
-	// ErrPublicIDGeneration indicates every generated public id collided.
+	// ErrPublicIDGeneration indicates every generated public id collided, which
+	// means the six-digit space is effectively exhausted for this deployment.
 	ErrPublicIDGeneration = errors.New("usecase: unable to generate unique public id")
 )
+
+// BadRequestError carries a client-safe validation message. Error returns only
+// Message so the internal sentinel prefix never reaches API clients. It unwraps
+// to ErrBadRequest so callers can still match with errors.Is.
+type BadRequestError struct {
+	Message string
+}
+
+// Error returns the client-safe validation message.
+func (e BadRequestError) Error() string {
+	return e.Message
+}
+
+// Unwrap exposes ErrBadRequest for errors.Is checks.
+func (e BadRequestError) Unwrap() error {
+	return ErrBadRequest
+}
+
+func badRequest(message string) error {
+	return BadRequestError{Message: message}
+}
 
 var emailPattern = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 
@@ -46,8 +75,10 @@ var emailPattern = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 type CreateUserInput struct {
 	Email    string
 	Password string
-	Role     string
-	Profile  entity.Profile
+	// Role is accepted for wire compatibility but intentionally ignored.
+	// Registration always creates a member; see CreateUser.
+	Role    string
+	Profile entity.Profile
 }
 
 // ChangePasswordInput carries the current and replacement passwords.
@@ -99,13 +130,13 @@ func NewUserUseCase(repo repository.UserRepository) UserUseCase {
 func (u userUsecase) CreateUser(ctx context.Context, input CreateUserInput) (entity.User, error) {
 	email := strings.ToLower(strings.TrimSpace(input.Email))
 
-	role := entity.Role(strings.TrimSpace(input.Role))
-	if role == "" {
-		role = entity.RoleMember
-	}
+	// Never trust a client-supplied role. Self-registration always creates a
+	// member; admin provisioning needs a trusted path such as a future
+	// authenticated admin endpoint.
+	role := entity.RoleMember
 
 	profile := sanitizeProfile(input.Profile)
-	if err := validateCreateUser(email, input.Password, role, profile); err != nil {
+	if err := validateCreateUser(email, input.Password, profile); err != nil {
 		return entity.User{}, err
 	}
 
@@ -115,6 +146,9 @@ func (u userUsecase) CreateUser(ctx context.Context, input CreateUserInput) (ent
 	}
 
 	now := u.now()
+	// Retry a bounded number of times on collision. When all attempts fail the
+	// six-digit space is effectively exhausted and we fail clearly instead of
+	// looping forever; see the public ID ceiling note on publicIDMax.
 	for range publicIDAttempts {
 		publicID, err := generatePublicID()
 		if err != nil {
@@ -219,7 +253,15 @@ func (u userUsecase) ChangePassword(
 		return err
 	}
 
-	if err := u.repo.UpdatePassword(ctx, publicID, passwordHash, u.now()); err != nil {
+	// The current hash predicate makes the write atomic: if another change
+	// lands between the read above and this update, zero rows match and the
+	// caller gets invalid credentials instead of silently overwriting the
+	// newer password.
+	err = u.repo.ChangePassword(ctx, publicID, user.Password, passwordHash, u.now())
+	if errors.Is(err, repository.ErrUserNotFound) {
+		return ErrInvalidCredentials
+	}
+	if err != nil {
 		return mapRepositoryError(err)
 	}
 
@@ -272,15 +314,12 @@ func (u userUsecase) FindUsers(ctx context.Context, input FindUsersInput) (FindU
 	return result, nil
 }
 
-func validateCreateUser(email, password string, role entity.Role, profile entity.Profile) error {
+func validateCreateUser(email, password string, profile entity.Profile) error {
 	if !emailPattern.MatchString(email) {
-		return fmt.Errorf("%w: invalid email", ErrInvalidInput)
+		return badRequest("invalid email")
 	}
 	if err := validatePassword(password); err != nil {
 		return err
-	}
-	if role != entity.RoleAdmin && role != entity.RoleMember {
-		return fmt.Errorf("%w: invalid role", ErrInvalidInput)
 	}
 	if err := validateGender(profile.Gender); err != nil {
 		return err
@@ -291,7 +330,10 @@ func validateCreateUser(email, password string, role entity.Role, profile entity
 
 func validatePassword(password string) error {
 	if len(password) < minPasswordLength {
-		return fmt.Errorf("%w: password must be at least %d characters", ErrInvalidInput, minPasswordLength)
+		return badRequest(fmt.Sprintf("password must be at least %d characters", minPasswordLength))
+	}
+	if len(password) > maxPasswordLength {
+		return badRequest(fmt.Sprintf("password must be at most %d bytes", maxPasswordLength))
 	}
 
 	return nil
@@ -302,7 +344,7 @@ func validateGender(gender entity.Gender) error {
 		return nil
 	}
 
-	return fmt.Errorf("%w: invalid gender", ErrInvalidInput)
+	return badRequest("invalid gender")
 }
 
 // sanitizeProfile trims whitespace so empty input is stored as NULL.
@@ -339,7 +381,8 @@ func hashPassword(password string) (string, error) {
 }
 
 // generatePublicID returns a YTP- prefixed identifier with six random decimal
-// digits drawn from crypto/rand.
+// digits drawn from crypto/rand. It is a lookup handle, not an authentication
+// credential; callers must not treat it as secret.
 func generatePublicID() (string, error) {
 	suffix, err := rand.Int(rand.Reader, big.NewInt(publicIDMax))
 	if err != nil {
