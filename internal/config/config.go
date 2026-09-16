@@ -48,9 +48,9 @@ func (c PostgresConfig) DSN() string {
 	return dsn.String()
 }
 
-// Load reads application settings from environment variables and defaults.
 const defaultShutdownTimeout = 10 * time.Second
 
+// Load reads application settings from environment variables and defaults.
 func Load() Config {
 	v := viper.New()
 

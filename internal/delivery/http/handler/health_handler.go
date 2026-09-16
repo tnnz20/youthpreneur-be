@@ -20,6 +20,7 @@ func NewHealthHandler(logger *slog.Logger, useCase usecase.HealthUseCase) *Healt
 	return &HealthHandler{logger: logger, useCase: useCase}
 }
 
+// Check handles GET /healthz.
 func (h *HealthHandler) Check(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(model.HealthResponse{Status: h.useCase.Check().Status}); err != nil {

@@ -104,13 +104,35 @@ type FindUsersResult struct {
 
 // UserUseCase implements user and profile operations.
 type UserUseCase interface {
+	// CreateUser validates input, hashes the password, and registers a new
+	// member account. It returns ErrBadRequest on validation failure,
+	// ErrEmailTaken when the email is registered, and ErrPublicIDGeneration
+	// when no unique public id can be allocated.
 	CreateUser(ctx context.Context, input CreateUserInput) (entity.User, error)
+	// DeleteUser soft deletes the active user matching publicID.
+	// It returns ErrUserNotFound when no active user matches.
 	DeleteUser(ctx context.Context, publicID string) error
+	// GetUser returns the active user matching publicID.
+	// It returns ErrUserNotFound when no active user matches.
 	GetUser(ctx context.Context, publicID string) (entity.User, error)
+	// UpdateProfile replaces the profile fields of the active user matching
+	// publicID. It returns ErrBadRequest for an invalid gender and
+	// ErrUserNotFound when no active user matches.
 	UpdateProfile(ctx context.Context, publicID string, profile entity.Profile) (entity.User, error)
+	// UpdateStatus activates or deactivates the active user matching publicID.
+	// It returns ErrUserNotFound when no active user matches.
 	UpdateStatus(ctx context.Context, publicID string, isActive bool) (entity.User, error)
+	// ChangePassword replaces the password of the active user matching publicID
+	// after verifying input.CurrentPassword. It returns ErrBadRequest when the
+	// new password is invalid and ErrInvalidCredentials when the current
+	// password is wrong or the stored hash changed concurrently.
 	ChangePassword(ctx context.Context, publicID string, input ChangePasswordInput) error
+	// ResetPassword sets a new password without verifying the current one. It
+	// returns ErrBadRequest when the new password is invalid and
+	// ErrUserNotFound when no active user matches.
 	ResetPassword(ctx context.Context, publicID string, newPassword string) error
+	// FindUsers returns one page of active users matching input. It returns
+	// ErrBadRequest for an invalid gender.
 	FindUsers(ctx context.Context, input FindUsersInput) (FindUsersResult, error)
 }
 
@@ -127,6 +149,8 @@ func NewUserUseCase(repo repository.UserRepository) UserUseCase {
 	}
 }
 
+// CreateUser validates input, assigns a generated public id, and persists a
+// new member account.
 func (u userUsecase) CreateUser(ctx context.Context, input CreateUserInput) (entity.User, error) {
 	email := strings.ToLower(strings.TrimSpace(input.Email))
 
@@ -182,6 +206,7 @@ func (u userUsecase) CreateUser(ctx context.Context, input CreateUserInput) (ent
 	return entity.User{}, ErrPublicIDGeneration
 }
 
+// DeleteUser soft deletes the active user matching publicID.
 func (u userUsecase) DeleteUser(ctx context.Context, publicID string) error {
 	if err := u.repo.SoftDeleteUser(ctx, publicID, u.now()); err != nil {
 		return mapRepositoryError(err)
@@ -190,6 +215,7 @@ func (u userUsecase) DeleteUser(ctx context.Context, publicID string) error {
 	return nil
 }
 
+// GetUser returns the active user matching publicID.
 func (u userUsecase) GetUser(ctx context.Context, publicID string) (entity.User, error) {
 	user, err := u.repo.FindUserByPublicID(ctx, publicID)
 	if err != nil {
@@ -199,6 +225,8 @@ func (u userUsecase) GetUser(ctx context.Context, publicID string) (entity.User,
 	return user, nil
 }
 
+// UpdateProfile replaces the profile fields of the active user matching
+// publicID.
 func (u userUsecase) UpdateProfile(
 	ctx context.Context,
 	publicID string,
@@ -217,6 +245,7 @@ func (u userUsecase) UpdateProfile(
 	return user, nil
 }
 
+// UpdateStatus activates or deactivates the active user matching publicID.
 func (u userUsecase) UpdateStatus(
 	ctx context.Context,
 	publicID string,
@@ -230,6 +259,8 @@ func (u userUsecase) UpdateStatus(
 	return user, nil
 }
 
+// ChangePassword replaces the password of the active user matching publicID
+// after verifying the current one.
 func (u userUsecase) ChangePassword(
 	ctx context.Context,
 	publicID string,
@@ -268,6 +299,8 @@ func (u userUsecase) ChangePassword(
 	return nil
 }
 
+// ResetPassword sets a new password for the active user matching publicID
+// without verifying the current one.
 func (u userUsecase) ResetPassword(ctx context.Context, publicID string, newPassword string) error {
 	if err := validatePassword(newPassword); err != nil {
 		return err
@@ -285,6 +318,7 @@ func (u userUsecase) ResetPassword(ctx context.Context, publicID string, newPass
 	return nil
 }
 
+// FindUsers returns one page of active users matching input.
 func (u userUsecase) FindUsers(ctx context.Context, input FindUsersInput) (FindUsersResult, error) {
 	gender := entity.Gender(strings.TrimSpace(input.Gender))
 	if err := validateGender(gender); err != nil {
