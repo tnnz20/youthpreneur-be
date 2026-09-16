@@ -53,6 +53,33 @@ func TestLoadNonPositiveShutdownTimeoutUsesDefault(t *testing.T) {
 	}
 }
 
+func TestLoadPostgresSSLModeDefault(t *testing.T) {
+	if value, ok := os.LookupEnv("POSTGRES_SSLMODE"); ok {
+		t.Cleanup(func() { os.Setenv("POSTGRES_SSLMODE", value) })
+		os.Unsetenv("POSTGRES_SSLMODE")
+	}
+
+	if got := Load().Postgres.SSLMode; got != "disable" {
+		t.Errorf("sslmode = %q, want %q", got, "disable")
+	}
+}
+
+func TestPostgresConfigDSNEscapesCredentials(t *testing.T) {
+	cfg := PostgresConfig{
+		Host:     "localhost",
+		Port:     5432,
+		User:     "user",
+		Password: "p@ss:word",
+		Database: "youthpreneur",
+		SSLMode:  "disable",
+	}
+
+	want := "postgres://user:p%40ss%3Aword@localhost:5432/youthpreneur?sslmode=disable"
+	if got := cfg.DSN(); got != want {
+		t.Errorf("DSN() = %q, want %q", got, want)
+	}
+}
+
 func TestLoadOverrides(t *testing.T) {
 	t.Setenv("APP_ENVIRONMENT", "production")
 	t.Setenv("APP_VERSION", "1.2.3")

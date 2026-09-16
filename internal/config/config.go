@@ -1,6 +1,9 @@
 package config
 
 import (
+	"net"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,6 +27,25 @@ type PostgresConfig struct {
 	User     string
 	Password string
 	Database string
+	SSLMode  string
+}
+
+// DSN returns a PostgreSQL connection URL usable by database/sql clients.
+// Credentials and the database name are escaped, so passwords may contain
+// reserved URL characters.
+func (c PostgresConfig) DSN() string {
+	dsn := &url.URL{
+		Scheme: "postgres",
+		User:   url.UserPassword(c.User, c.Password),
+		Host:   net.JoinHostPort(c.Host, strconv.Itoa(c.Port)),
+		Path:   c.Database,
+	}
+
+	query := dsn.Query()
+	query.Set("sslmode", c.SSLMode)
+	dsn.RawQuery = query.Encode()
+
+	return dsn.String()
 }
 
 // Load reads application settings from environment variables and defaults.
@@ -42,6 +64,7 @@ func Load() Config {
 	v.SetDefault("postgres.user", "postgres")
 	v.SetDefault("postgres.password", "postgres")
 	v.SetDefault("postgres.database", "youthpreneur")
+	v.SetDefault("postgres.sslmode", "disable")
 
 	v.SetEnvPrefix("APP")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
@@ -57,6 +80,7 @@ func Load() Config {
 	v.MustBindEnv("postgres.user", "POSTGRES_USER")
 	v.MustBindEnv("postgres.password", "POSTGRES_PASSWORD")
 	v.MustBindEnv("postgres.database", "POSTGRES_DB")
+	v.MustBindEnv("postgres.sslmode", "POSTGRES_SSLMODE")
 
 	shutdownTimeout := v.GetDuration("app.shutdown_timeout")
 	if shutdownTimeout <= 0 {
@@ -75,6 +99,7 @@ func Load() Config {
 			User:     v.GetString("postgres.user"),
 			Password: v.GetString("postgres.password"),
 			Database: v.GetString("postgres.database"),
+			SSLMode:  v.GetString("postgres.sslmode"),
 		},
 	}
 }

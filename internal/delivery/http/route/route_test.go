@@ -13,9 +13,24 @@ import (
 	"github.com/tnnz20/youthpreneur-be/internal/usecase"
 )
 
-func TestHealthz(t *testing.T) {
+// stubUserUseCase satisfies usecase.UserUseCase so routing tests can register
+// the user routes without reaching a use case.
+type stubUserUseCase struct {
+	usecase.UserUseCase
+}
+
+func newTestRouter() *http.ServeMux {
 	mux := http.NewServeMux()
-	route.NewRouter(handler.NewHealthHandler(slog.Default(), usecase.NewHealthUseCase(repository.NewHealthRepository()))).Register(mux)
+	route.NewRouter(
+		handler.NewHealthHandler(slog.Default(), usecase.NewHealthUseCase(repository.NewHealthRepository())),
+		handler.NewUserHandler(slog.Default(), stubUserUseCase{}),
+	).Register(mux)
+
+	return mux
+}
+
+func TestHealthz(t *testing.T) {
+	mux := newTestRouter()
 
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rec := httptest.NewRecorder()

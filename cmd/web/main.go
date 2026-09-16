@@ -8,13 +8,28 @@ import (
 	"os/signal"
 	"syscall"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
+
 	"github.com/tnnz20/youthpreneur-be/internal/config"
 )
 
 func main() {
 	cfg := config.Load()
 	logger := config.NewLogger(cfg.LogLevel)
-	mux := config.Bootstrap(logger)
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	mux, db, err := config.Bootstrap(ctx, cfg, logger)
+	if err != nil {
+		logger.Error("bootstrap failed", "error", err)
+		os.Exit(1)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			logger.Error("closing database", "error", err)
+		}
+	}()
 
 	srv := &http.Server{
 		Addr:    cfg.Addr,
@@ -26,9 +41,6 @@ func main() {
 		"version", cfg.Version,
 		"addr", cfg.Addr,
 	)
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	serveErr := make(chan error, 1)
 	go func() {
