@@ -2,6 +2,7 @@ package route_test
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -14,7 +15,7 @@ import (
 
 func TestHealthz(t *testing.T) {
 	mux := http.NewServeMux()
-	route.NewRouter(handler.NewHealthHandler(usecase.NewHealthUsecase(repository.NewHealthRepository()))).Register(mux)
+	route.NewRouter(handler.NewHealthHandler(slog.Default(), usecase.NewHealthUseCase(repository.NewHealthRepository()))).Register(mux)
 
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rec := httptest.NewRecorder()

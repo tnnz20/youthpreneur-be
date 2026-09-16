@@ -5,7 +5,8 @@ import (
 	"github.com/tnnz20/youthpreneur-be/internal/repository"
 )
 
-type HealthUsecase interface {
+// HealthUseCase provides health status for HTTP clients.
+type HealthUseCase interface {
 	Check() entity.Health
 }
 
@@ -13,7 +14,8 @@ type healthUsecase struct {
 	repo repository.HealthRepository
 }
 
-func NewHealthUsecase(repo repository.HealthRepository) HealthUsecase {
+// NewHealthUseCase creates a health use case backed by repo.
+func NewHealthUseCase(repo repository.HealthRepository) HealthUseCase {
 	return healthUsecase{repo: repo}
 }
 

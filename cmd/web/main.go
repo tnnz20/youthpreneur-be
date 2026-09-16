@@ -1,18 +1,26 @@
 package main
 
 import (
-	"log"
+	"errors"
 	"net/http"
+	"os"
 
 	"github.com/tnnz20/youthpreneur-be/internal/config"
 )
 
 func main() {
 	cfg := config.Load()
-	mux := config.Bootstrap()
+	logger := config.NewLogger(cfg.LogLevel)
+	mux := config.Bootstrap(logger)
 
-	log.Printf("listening on %s", cfg.Addr)
-	if err := http.ListenAndServe(cfg.Addr, mux); err != nil {
-		log.Fatal(err)
+	srv := &http.Server{
+		Addr:    cfg.Addr,
+		Handler: mux,
+	}
+
+	logger.Info("listening", "addr", cfg.Addr)
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		logger.Error("server stopped", "error", err)
+		os.Exit(1)
 	}
 }
