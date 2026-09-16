@@ -16,6 +16,9 @@ import (
 // birthDateFormat is the ISO 8601 date format used for profile birth dates.
 const birthDateFormat = "2006-01-02"
 
+// maxBodyBytes caps decoded JSON request bodies at 1 MiB to bound memory use.
+const maxBodyBytes = 1 << 20
+
 // UserHandler serves HTTP requests for user and profile operations.
 type UserHandler struct {
 	logger  *slog.Logger
@@ -189,6 +192,8 @@ func (h *UserHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 }
 
 // ResetPassword handles POST /users/{publicID}/password/reset.
+//
+// Unsafe until authentication and admin authorization middleware is enabled.
 func (h *UserHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	var request model.ResetPasswordRequest
 	if !h.decode(w, r, &request) {
@@ -204,6 +209,7 @@ func (h *UserHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *UserHandler) decode(w http.ResponseWriter, r *http.Request, target any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	if err := json.NewDecoder(r.Body).Decode(target); err != nil {
 		h.writeError(w, http.StatusBadRequest, "invalid request body")
 		return false
@@ -227,8 +233,15 @@ func (h *UserHandler) writeError(w http.ResponseWriter, status int, message stri
 
 func (h *UserHandler) writeUsecaseError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, usecase.ErrInvalidInput):
-		h.writeError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, usecase.ErrBadRequest):
+		// Surface only the client-safe validation message; the internal
+		// sentinel prefix stays in logs and wrapped details.
+		message := "invalid request"
+		var badRequest usecase.BadRequestError
+		if errors.As(err, &badRequest) && badRequest.Message != "" {
+			message = badRequest.Message
+		}
+		h.writeError(w, http.StatusBadRequest, message)
 	case errors.Is(err, usecase.ErrUserNotFound):
 		h.writeError(w, http.StatusNotFound, "user not found")
 	case errors.Is(err, usecase.ErrEmailTaken):
@@ -262,6 +275,9 @@ func parseBirthDate(raw string) (*time.Time, error) {
 	parsed, err := time.Parse(birthDateFormat, raw)
 	if err != nil {
 		return nil, err
+	}
+	if parsed.After(time.Now()) {
+		return nil, errors.New("birth date must not be in the future")
 	}
 
 	return &parsed, nil

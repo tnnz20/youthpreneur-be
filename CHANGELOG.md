@@ -24,6 +24,24 @@
 
 ### Changed
 
+- User creation ignores any client-supplied `role` and always stores `member`;
+  admin provisioning requires a trusted authenticated path.
+- JSON request bodies are limited to 1 MiB, and validation errors return safe
+  stable messages instead of the internal `usecase:` sentinel prefix.
+- Passwords longer than bcrypt's 72-byte input limit are rejected instead of
+  silently truncated.
+- Password change uses an atomic update guarded by the current hash; a lost
+  update surfaces as invalid credentials.
+- Future `birth_date` values are rejected.
+- `cmd/web` returns through a cleanup-safe error flow so deferred database close
+  runs on every exit path.
+- `cmd/migrate` reports DSN parse failures instead of silently falling back to
+  the unregistered `postgres://` scheme.
+- Documented the six-digit public ID ceiling and that public IDs are not
+  authentication credentials.
+- Marked password reset as unsafe until authentication middleware restricts it
+  to authenticated admins.
+
 - Centralized dependency wiring in `config.Bootstrap`, which now opens and
   verifies the PostgreSQL connection.
 - Renamed health use case identifiers to follow Go naming conventions.

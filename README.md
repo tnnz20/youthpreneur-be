@@ -114,6 +114,17 @@ Schema notes:
 - User deletes are soft deletes; deleted users are excluded from reads.
 - `user_role` is an enum of `admin` or `member`. `user_profiles.gender` is
   `VARCHAR(50)`.
+- Public IDs are six random decimal digits (`YTP-DDDDDD`), a 10^6 space. They
+  are lookup handles, not authentication credentials, and must not be treated as
+  secret. After a bounded number of collisions the create request fails rather
+  than looping; widen the format (8+ digits or alphanumeric) before the user
+  count approaches that ceiling.
+- New users are always created with the `member` role. Any `role` sent to
+  `POST /users` is ignored. Admin provisioning needs a trusted, authenticated
+  path, which this PR does not add.
+- Adding a future role is a two-part change: add the value to the `user_role`
+  enum with a new migration, and update application-side role handling for any
+  trusted provisioning path.
 - `user_profiles` holds `full_name`, `nik`, `birth_date` (`DATE`), `gender`,
   `district`, `phone` (`VARCHAR(32)`), and `address` (`TEXT`). `birth_date` is
   exchanged as `YYYY-MM-DD` (ISO 8601).
@@ -138,6 +149,10 @@ exposing these routes.
 
 Public IDs use the form `YTP-` plus six random digits, for example
 `YTP-482910`. Passwords are hashed with bcrypt and never returned in responses.
+Request bodies are capped at 1 MiB. Passwords must be 8 to 72 bytes; the upper
+bound matches bcrypt's input limit so long passwords are rejected instead of
+being silently truncated. `birth_date` must be a valid ISO 8601 date that is not
+in the future.
 
 ### Cursor pagination
 
@@ -184,9 +199,9 @@ curl "http://localhost:8080/users?limit=2&district=Bandung"
 
 There is no authentication or authorization yet. In particular,
 `POST /users/{publicID}/password/reset` resets a password without the current
-password, so any caller can change any known user's password. Do not expose
-these routes outside a trusted development network until authentication is
-added.
+password. This endpoint is unsafe until authentication middleware is added;
+then restrict it to authenticated admins only. Do not expose it outside a
+trusted development network before that.
 
 ## Project Layout
 
