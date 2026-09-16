@@ -1,4 +1,4 @@
-package repository
+package persistence
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/tnnz20/youthpreneur-be/internal/entity"
+	"github.com/tnnz20/youthpreneur-be/internal/repository"
 )
 
 // uniqueViolation is the PostgreSQL SQLSTATE code for a unique constraint
@@ -39,7 +40,7 @@ type userRepository struct {
 }
 
 // NewUserRepository creates a PostgreSQL-backed user repository.
-func NewUserRepository(db *sql.DB) UserRepository {
+func NewUserRepository(db *sql.DB) repository.UserRepository {
 	return userRepository{db: db}
 }
 
@@ -107,7 +108,7 @@ func (r userRepository) FindUserByPublicID(ctx context.Context, publicID string)
 
 	user, err := scanUser(r.db.QueryRowContext(ctx, query, publicID).Scan)
 	if errors.Is(err, sql.ErrNoRows) {
-		return entity.User{}, ErrUserNotFound
+		return entity.User{}, repository.ErrUserNotFound
 	}
 	if err != nil {
 		return entity.User{}, fmt.Errorf("find user by public id: %w", err)
@@ -380,9 +381,9 @@ func mapInsertError(err error) error {
 	if errors.As(err, &pgErr) && pgErr.Code == uniqueViolation {
 		switch {
 		case strings.Contains(pgErr.ConstraintName, "email"):
-			return ErrDuplicateEmail
+			return repository.ErrDuplicateEmail
 		case strings.Contains(pgErr.ConstraintName, "public_id"):
-			return ErrDuplicatePublicID
+			return repository.ErrDuplicatePublicID
 		}
 	}
 
@@ -397,7 +398,7 @@ func requireAffected(result sql.Result) error {
 		return fmt.Errorf("rows affected: %w", err)
 	}
 	if affected == 0 {
-		return ErrUserNotFound
+		return repository.ErrUserNotFound
 	}
 
 	return nil

@@ -11,6 +11,7 @@ import (
 	"github.com/tnnz20/youthpreneur-be/internal/delivery/http/handler"
 	"github.com/tnnz20/youthpreneur-be/internal/delivery/http/route"
 	"github.com/tnnz20/youthpreneur-be/internal/repository"
+	"github.com/tnnz20/youthpreneur-be/internal/repository/persistence"
 	"github.com/tnnz20/youthpreneur-be/internal/usecase"
 )
 
@@ -32,7 +33,7 @@ func Bootstrap(ctx context.Context, cfg Config, logger *slog.Logger) (*http.Serv
 	healthUsecase := usecase.NewHealthUseCase(healthRepo)
 	healthHandler := handler.NewHealthHandler(logger, healthUsecase)
 
-	userRepo := repository.NewUserRepository(db)
+	userRepo := persistence.NewUserRepository(db)
 	userUsecase := usecase.NewUserUseCase(userRepo)
 	userHandler := handler.NewUserHandler(logger, userUsecase)
 

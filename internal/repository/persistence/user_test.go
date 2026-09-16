@@ -1,4 +1,4 @@
-package repository
+package persistence
 
 import (
 	"context"
@@ -15,6 +15,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/tnnz20/youthpreneur-be/internal/entity"
+	"github.com/tnnz20/youthpreneur-be/internal/repository"
 )
 
 func TestMapInsertErrorTranslatesUniqueViolations(t *testing.T) {
@@ -26,12 +27,12 @@ func TestMapInsertErrorTranslatesUniqueViolations(t *testing.T) {
 		{
 			name: "duplicate email",
 			err:  &pgconn.PgError{Code: uniqueViolation, ConstraintName: "users_email_key"},
-			want: ErrDuplicateEmail,
+			want: repository.ErrDuplicateEmail,
 		},
 		{
 			name: "duplicate public id",
 			err:  &pgconn.PgError{Code: uniqueViolation, ConstraintName: "users_public_id_key"},
-			want: ErrDuplicatePublicID,
+			want: repository.ErrDuplicatePublicID,
 		},
 	}
 
@@ -47,7 +48,7 @@ func TestMapInsertErrorTranslatesUniqueViolations(t *testing.T) {
 func TestMapInsertErrorWrapsOtherFailures(t *testing.T) {
 	err := mapInsertError(errors.New("connection reset"))
 
-	if errors.Is(err, ErrDuplicateEmail) || errors.Is(err, ErrDuplicatePublicID) {
+	if errors.Is(err, repository.ErrDuplicateEmail) || errors.Is(err, repository.ErrDuplicatePublicID) {
 		t.Fatalf("mapInsertError() = %v, want wrapped generic error", err)
 	}
 	if !strings.Contains(err.Error(), "connection reset") {
@@ -143,7 +144,7 @@ func TestUserRepositoryIntegration(t *testing.T) {
 		t.Fatalf("UpdatePassword() error = %v", err)
 	}
 
-	if err := repo.ChangePassword(ctx, publicID, "stale-hash", "ignored", now+3); !errors.Is(err, ErrUserNotFound) {
+	if err := repo.ChangePassword(ctx, publicID, "stale-hash", "ignored", now+3); !errors.Is(err, repository.ErrUserNotFound) {
 		t.Errorf("ChangePassword() with stale hash error = %v, want ErrUserNotFound", err)
 	}
 	if err := repo.ChangePassword(ctx, publicID, "new-hash", "newer-hash", now+3); err != nil {
@@ -166,10 +167,10 @@ func TestUserRepositoryIntegration(t *testing.T) {
 		t.Errorf("profile deleted_at = %d, want %d", profileDeletedAt, now+4)
 	}
 
-	if _, err := repo.FindUserByPublicID(ctx, publicID); !errors.Is(err, ErrUserNotFound) {
+	if _, err := repo.FindUserByPublicID(ctx, publicID); !errors.Is(err, repository.ErrUserNotFound) {
 		t.Errorf("FindUserByPublicID() error = %v, want ErrUserNotFound", err)
 	}
-	if err := repo.SoftDeleteUser(ctx, publicID, now+5); !errors.Is(err, ErrUserNotFound) {
+	if err := repo.SoftDeleteUser(ctx, publicID, now+5); !errors.Is(err, repository.ErrUserNotFound) {
 		t.Errorf("second SoftDeleteUser() error = %v, want ErrUserNotFound", err)
 	}
 }

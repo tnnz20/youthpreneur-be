@@ -133,6 +133,8 @@ Schema notes:
 
 ## User API
 
+See [`api-contract.md`](api-contract.md) for the request and response formats.
+
 No authentication or middleware is wired yet. See the limitation below before
 exposing these routes.
 
@@ -213,12 +215,17 @@ internal/config/                 configuration, logger, and dependency bootstrap
 internal/delivery/http/          HTTP handlers and routes
 internal/entity/                 domain entities
 internal/model/                  HTTP request and response models
-internal/repository/             repository interfaces and implementations
+internal/repository/             repository interfaces
+internal/repository/persistence/ PostgreSQL repository implementations
 internal/usecase/                application use cases
+api-contract.md                  HTTP API contract
 compose.yaml                     local PostgreSQL container
 Dockerfile                       API container build
 Makefile                         development commands
 ```
+
+Persistence uses the standard library `database/sql` with the `pgx` driver. No
+ORM such as GORM is used.
 
 Request flow:
 
