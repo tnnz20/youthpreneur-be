@@ -24,16 +24,20 @@ const userColumns = `
 	p.id, p.full_name, p.nik, p.birth_date, p.gender, p.district, p.phone, p.address,
 	p.created_at, p.updated_at, p.deleted_at`
 
+// findUsersQuery lists active members only. Admin accounts are excluded in the
+// database before cursor and limit are applied so pagination has no gaps. Direct
+// lookups such as FindUserByPublicID can still return admins.
 const findUsersQuery = `
 	SELECT ` + userColumns + `
 	FROM users u
 	LEFT JOIN user_profiles p ON p.user_id = u.id
 	WHERE u.deleted_at IS NULL
+	  AND u.role <> $4
 	  AND ($1 = '' OR p.district = $1)
 	  AND ($2 = '' OR p.gender = $2)
 	  AND ($3::int = 0 OR u.id > $3)
 	ORDER BY u.id ASC
-	LIMIT $4`
+	LIMIT $5`
 
 type userRepository struct {
 	db *sql.DB
@@ -136,6 +140,7 @@ func (r userRepository) FindUsers(ctx context.Context, filter entity.UserFilter)
 		filter.District,
 		string(filter.Gender),
 		filter.Cursor,
+		string(entity.RoleAdmin),
 		filter.Limit,
 	)
 	if err != nil {

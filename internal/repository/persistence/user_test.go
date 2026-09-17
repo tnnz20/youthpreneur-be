@@ -56,6 +56,19 @@ func TestMapInsertErrorWrapsOtherFailures(t *testing.T) {
 	}
 }
 
+func TestFindUsersQueryExcludesAdminsBeforePagination(t *testing.T) {
+	roleAt := strings.Index(findUsersQuery, "u.role <> $4")
+	cursorAt := strings.Index(findUsersQuery, "$3::int = 0 OR u.id > $3")
+	limitAt := strings.Index(findUsersQuery, "LIMIT $5")
+
+	if roleAt == -1 || cursorAt == -1 || limitAt == -1 {
+		t.Fatalf("findUsersQuery missing admin exclusion, cursor, or limit clause")
+	}
+	if !(roleAt < cursorAt && cursorAt < limitAt) {
+		t.Errorf("admin exclusion must precede cursor and limit, got role=%d cursor=%d limit=%d", roleAt, cursorAt, limitAt)
+	}
+}
+
 // TestUserRepositoryIntegration exercises real SQL against PostgreSQL. It runs
 // only when TEST_POSTGRES_DSN points at a database with migrations applied.
 func TestUserRepositoryIntegration(t *testing.T) {
@@ -172,6 +185,104 @@ func TestUserRepositoryIntegration(t *testing.T) {
 	}
 	if err := repo.SoftDeleteUser(ctx, publicID, now+5); !errors.Is(err, repository.ErrUserNotFound) {
 		t.Errorf("second SoftDeleteUser() error = %v, want ErrUserNotFound", err)
+	}
+}
+
+// TestUserRepositoryListExcludesAdminsIntegration proves GET /users backing SQL
+// omits admins while direct public-ID lookup still returns them. It runs only
+// when TEST_POSTGRES_DSN points at a database with migrations applied.
+func TestUserRepositoryListExcludesAdminsIntegration(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set")
+	}
+
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	ctx := context.Background()
+	if err := db.PingContext(ctx); err != nil {
+		t.Fatalf("ping database: %v", err)
+	}
+
+	repo := NewUserRepository(db)
+	suffix := time.Now().UnixNano()
+	district := fmt.Sprintf("ListFilter-%d", suffix)
+	now := time.Now().Unix()
+
+	members := make([]entity.User, 0, 2)
+	for i := range 2 {
+		member, err := repo.CreateUser(ctx, entity.User{
+			PublicID:  fmt.Sprintf("YTP-%06d", (suffix+int64(i))%1000000),
+			Email:     fmt.Sprintf("list-member-%d-%d@example.com", suffix, i),
+			Password:  "hash",
+			Role:      entity.RoleMember,
+			IsActive:  true,
+			CreatedAt: now,
+			UpdatedAt: now,
+			Profile:   &entity.Profile{FullName: "List Member", District: district},
+		})
+		if err != nil {
+			t.Fatalf("CreateUser(member) error = %v", err)
+		}
+		members = append(members, member)
+		t.Cleanup(func() { _, _ = db.ExecContext(ctx, "DELETE FROM users WHERE public_id = $1", member.PublicID) })
+	}
+
+	admin, err := repo.CreateUser(ctx, entity.User{
+		PublicID:  fmt.Sprintf("YTP-%06d", (suffix+100)%1000000),
+		Email:     fmt.Sprintf("list-admin-%d@example.com", suffix),
+		Password:  "hash",
+		Role:      entity.RoleAdmin,
+		IsActive:  true,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Profile:   &entity.Profile{FullName: "List Admin", District: district},
+	})
+	if err != nil {
+		t.Fatalf("CreateUser(admin) error = %v", err)
+	}
+	t.Cleanup(func() { _, _ = db.ExecContext(ctx, "DELETE FROM users WHERE public_id = $1", admin.PublicID) })
+
+	first, err := repo.FindUsers(ctx, entity.UserFilter{District: district, Limit: 1})
+	if err != nil {
+		t.Fatalf("FindUsers() error = %v", err)
+	}
+	if len(first) != 1 || first[0].ID != members[0].ID {
+		t.Fatalf("first page = %+v, want member %d", first, members[0].ID)
+	}
+	if containsPublicID(first, admin.PublicID) {
+		t.Error("FindUsers() returned an admin account")
+	}
+
+	second, err := repo.FindUsers(ctx, entity.UserFilter{District: district, Cursor: first[0].ID, Limit: 1})
+	if err != nil {
+		t.Fatalf("FindUsers(cursor) error = %v", err)
+	}
+	if len(second) != 1 || second[0].ID != members[1].ID {
+		t.Fatalf("second page = %+v, want member %d", second, members[1].ID)
+	}
+	if containsPublicID(second, admin.PublicID) {
+		t.Error("FindUsers(cursor) returned an admin account")
+	}
+
+	last, err := repo.FindUsers(ctx, entity.UserFilter{District: district, Cursor: second[0].ID, Limit: 1})
+	if err != nil {
+		t.Fatalf("FindUsers(last) error = %v", err)
+	}
+	if len(last) != 0 {
+		t.Fatalf("last page = %+v, want empty after members", last)
+	}
+
+	direct, err := repo.FindUserByPublicID(ctx, admin.PublicID)
+	if err != nil {
+		t.Fatalf("FindUserByPublicID(admin) error = %v", err)
+	}
+	if direct.Role != entity.RoleAdmin || direct.ID != admin.ID {
+		t.Errorf("FindUserByPublicID(admin) = %+v, want active admin %d", direct, admin.ID)
 	}
 }
 
