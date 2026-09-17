@@ -13,10 +13,12 @@ type Middleware func(http.Handler) http.Handler
 // is treated as pass-through so tests can register routes without cross-cutting
 // concerns.
 type Dependencies struct {
-	HealthHandler     *handler.HealthHandler
-	UserHandler       *handler.UserHandler
-	AuthHandler       *handler.AuthHandler
-	EnterpriseHandler *handler.EnterpriseHandler
+	HealthHandler             *handler.HealthHandler
+	UserHandler               *handler.UserHandler
+	AuthHandler               *handler.AuthHandler
+	EnterpriseHandler         *handler.EnterpriseHandler
+	TrainingCatalogHandler    *handler.TrainingCatalogHandler
+	TrainingEnrollmentHandler *handler.TrainingEnrollmentHandler
 
 	Authenticate     Middleware
 	RequireAdmin     Middleware
@@ -61,6 +63,22 @@ func (rt *Router) Register(mux *http.ServeMux) {
 	rt.register(mux, "DELETE /users/{publicID}", admin, rt.deps.UserHandler.Delete)
 	rt.register(mux, "PATCH /users/{publicID}/status", admin, rt.deps.UserHandler.UpdateStatus)
 	rt.register(mux, "POST /users/{publicID}/password/reset", admin, rt.deps.UserHandler.ResetPassword)
+
+	// Catalog reads are public; catalog writes are admin-only.
+	rt.register(mux, "GET /training-catalog", nil, rt.deps.TrainingCatalogHandler.List)
+	rt.register(mux, "GET /training-catalog/{publicID}", nil, rt.deps.TrainingCatalogHandler.Get)
+	rt.register(mux, "POST /training-catalog", admin, rt.deps.TrainingCatalogHandler.Create)
+	rt.register(mux, "PATCH /training-catalog/{publicID}", admin, rt.deps.TrainingCatalogHandler.Update)
+	rt.register(mux, "PATCH /training-catalog/{publicID}/status", admin, rt.deps.TrainingCatalogHandler.UpdateStatus)
+	rt.register(mux, "DELETE /training-catalog/{publicID}", admin, rt.deps.TrainingCatalogHandler.Delete)
+
+	// Enrollment mutations are authenticated and self-scoped; admin history is
+	// admin-only.
+	rt.register(mux, "POST /training-enrollments", authenticated, rt.deps.TrainingEnrollmentHandler.Create)
+	rt.register(mux, "DELETE /training-enrollments/{publicID}", authenticated, rt.deps.TrainingEnrollmentHandler.Cancel)
+	rt.register(mux, "GET /training-enrollments/my", authenticated, rt.deps.TrainingEnrollmentHandler.ListMine)
+	rt.register(mux, "GET /training-enrollments", admin, rt.deps.TrainingEnrollmentHandler.List)
+	rt.register(mux, "GET /training-enrollments/catalog/{catalogPublicID}", admin, rt.deps.TrainingEnrollmentHandler.ListByCatalog)
 }
 
 func (rt *Router) register(mux *http.ServeMux, pattern string, chain []Middleware, fn http.HandlerFunc) {
