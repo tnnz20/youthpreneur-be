@@ -70,12 +70,26 @@ func (f *fakeUserUseCase) FindUsers(_ context.Context, input usecase.FindUsersIn
 
 func newTestRouter(uc usecase.UserUseCase) *http.ServeMux {
 	mux := http.NewServeMux()
-	route.NewRouter(
-		handler.NewHealthHandler(slog.Default(), usecase.NewHealthUseCase(repository.NewHealthRepository())),
-		handler.NewUserHandler(slog.Default(), uc),
-	).Register(mux)
+	route.NewRouter(route.Dependencies{
+		HealthHandler: handler.NewHealthHandler(slog.Default(), usecase.NewHealthUseCase(repository.NewHealthRepository())),
+		UserHandler:   handler.NewUserHandler(slog.Default(), uc),
+		AuthHandler:   handler.NewAuthHandler(slog.Default(), stubAuthUseCase{}, false),
+		Authenticate:  passthroughMiddleware,
+		RequireAdmin:  passthroughMiddleware,
+		RequireSelf:   passthroughMiddleware,
+	}).Register(mux)
 
 	return mux
+}
+
+// stubAuthUseCase satisfies usecase.AuthUseCase for user route tests that do
+// not exercise auth handlers.
+type stubAuthUseCase struct {
+	usecase.AuthUseCase
+}
+
+func passthroughMiddleware(next http.Handler) http.Handler {
+	return next
 }
 
 func serve(t *testing.T, mux *http.ServeMux, method, target string, body string) *httptest.ResponseRecorder {

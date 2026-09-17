@@ -100,18 +100,32 @@ func (r userRepository) CreateUser(ctx context.Context, user entity.User) (entit
 }
 
 func (r userRepository) FindUserByPublicID(ctx context.Context, publicID string) (entity.User, error) {
+	return r.findUser(ctx, "u.public_id = $1 AND u.deleted_at IS NULL", publicID)
+}
+
+func (r userRepository) FindUserByEmail(ctx context.Context, email string) (entity.User, error) {
+	return r.findUser(ctx, "u.email = $1 AND u.deleted_at IS NULL", email)
+}
+
+func (r userRepository) FindUserByID(ctx context.Context, id int) (entity.User, error) {
+	return r.findUser(ctx, "u.id = $1 AND u.deleted_at IS NULL", id)
+}
+
+// findUser runs a single-row lookup with a fixed predicate fragment. predicate
+// is an internal constant, never caller input; the dynamic value stays in arg.
+func (r userRepository) findUser(ctx context.Context, predicate string, arg any) (entity.User, error) {
 	query := `
 		SELECT ` + userColumns + `
 		FROM users u
 		LEFT JOIN user_profiles p ON p.user_id = u.id
-		WHERE u.public_id = $1 AND u.deleted_at IS NULL`
+		WHERE ` + predicate
 
-	user, err := scanUser(r.db.QueryRowContext(ctx, query, publicID).Scan)
+	user, err := scanUser(r.db.QueryRowContext(ctx, query, arg).Scan)
 	if errors.Is(err, sql.ErrNoRows) {
 		return entity.User{}, repository.ErrUserNotFound
 	}
 	if err != nil {
-		return entity.User{}, fmt.Errorf("find user by public id: %w", err)
+		return entity.User{}, fmt.Errorf("find user: %w", err)
 	}
 
 	return user, nil

@@ -73,6 +73,14 @@ func (f *fakeUserRepository) FindUserByPublicID(_ context.Context, _ string) (en
 	return f.findUser, nil
 }
 
+func (f *fakeUserRepository) FindUserByEmail(_ context.Context, _ string) (entity.User, error) {
+	return f.FindUserByPublicID(context.Background(), "")
+}
+
+func (f *fakeUserRepository) FindUserByID(_ context.Context, _ int) (entity.User, error) {
+	return f.FindUserByPublicID(context.Background(), "")
+}
+
 func (f *fakeUserRepository) FindUsers(_ context.Context, filter entity.UserFilter) ([]entity.User, error) {
 	f.lastFilter = filter
 	if f.listErr != nil {

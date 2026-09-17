@@ -9,21 +9,30 @@ import (
 	"time"
 
 	"github.com/tnnz20/youthpreneur-be/internal/delivery/http/handler"
+	"github.com/tnnz20/youthpreneur-be/internal/delivery/http/middleware"
 	"github.com/tnnz20/youthpreneur-be/internal/delivery/http/route"
 	"github.com/tnnz20/youthpreneur-be/internal/repository"
 	"github.com/tnnz20/youthpreneur-be/internal/repository/persistence"
+	"github.com/tnnz20/youthpreneur-be/internal/token"
 	"github.com/tnnz20/youthpreneur-be/internal/usecase"
 )
 
 const postgresPingTimeout = 5 * time.Second
 
-// Bootstrap wires application dependencies and returns the HTTP route
-// multiplexer together with the PostgreSQL connection it owns. The caller must
-// close the returned database when the server stops.
+// rateLimitWindow is the fixed window applied to every rate limiter.
+const rateLimitWindow = time.Minute
+
+// Bootstrap wires application dependencies and returns the HTTP handler
+// together with the PostgreSQL connection it owns. The caller must close the
+// returned database when the server stops.
 //
-// Bootstrap fails when PostgreSQL cannot be reached, so startup errors surface
-// immediately instead of at the first request.
-func Bootstrap(ctx context.Context, cfg Config, logger *slog.Logger) (*http.ServeMux, *sql.DB, error) {
+// Bootstrap fails when configuration is unsafe or PostgreSQL cannot be reached,
+// so startup errors surface immediately instead of at the first request.
+func Bootstrap(ctx context.Context, cfg Config, logger *slog.Logger) (http.Handler, *sql.DB, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, nil, err
+	}
+
 	db, err := openPostgres(ctx, cfg.Postgres)
 	if err != nil {
 		return nil, nil, err
@@ -37,10 +46,34 @@ func Bootstrap(ctx context.Context, cfg Config, logger *slog.Logger) (*http.Serv
 	userUsecase := usecase.NewUserUseCase(userRepo)
 	userHandler := handler.NewUserHandler(logger, userUsecase)
 
-	mux := http.NewServeMux()
-	route.NewRouter(healthHandler, userHandler).Register(mux)
+	sessionRepo := persistence.NewRefreshSessionRepository(db)
+	tokenService := token.NewService(cfg.Auth.Secret, cfg.Auth.AccessTokenTTL)
+	authUsecase := usecase.NewAuthUseCase(
+		userRepo,
+		sessionRepo,
+		tokenService,
+		cfg.Auth.AccessTokenTTL,
+		cfg.Auth.RefreshTokenTTL,
+	)
+	authHandler := handler.NewAuthHandler(logger, authUsecase, cfg.SecureCookies)
 
-	return mux, db, nil
+	authenticator := middleware.NewAuthenticator(tokenService, userRepo, logger)
+
+	mux := http.NewServeMux()
+	route.NewRouter(route.Dependencies{
+		HealthHandler:    healthHandler,
+		UserHandler:      userHandler,
+		AuthHandler:      authHandler,
+		Authenticate:     authenticator.Authenticate,
+		RequireAdmin:     authenticator.RequireAdmin,
+		RequireSelf:      authenticator.RequireSelf,
+		LoginRateLimit:   middleware.NewRateLimiter(cfg.RateLimit.LoginPerMinute, rateLimitWindow).Middleware,
+		RefreshRateLimit: middleware.NewRateLimiter(cfg.RateLimit.RefreshPerMinute, rateLimitWindow).Middleware,
+	}).Register(mux)
+
+	generalLimit := middleware.NewRateLimiter(cfg.RateLimit.GeneralPerMinute, rateLimitWindow).Middleware
+
+	return middleware.CORS(cfg.CORS.AllowedOrigins)(generalLimit(mux)), db, nil
 }
 
 func openPostgres(ctx context.Context, cfg PostgresConfig) (*sql.DB, error) {

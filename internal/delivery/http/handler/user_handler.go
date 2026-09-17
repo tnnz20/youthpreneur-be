@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -15,9 +14,6 @@ import (
 
 // birthDateFormat is the ISO 8601 date format used for profile birth dates.
 const birthDateFormat = "2006-01-02"
-
-// maxBodyBytes caps decoded JSON request bodies at 1 MiB to bound memory use.
-const maxBodyBytes = 1 << 20
 
 // UserHandler serves HTTP requests for user and profile operations.
 type UserHandler struct {
@@ -208,26 +204,15 @@ func (h *UserHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *UserHandler) decode(w http.ResponseWriter, r *http.Request, target any) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
-	if err := json.NewDecoder(r.Body).Decode(target); err != nil {
-		h.writeError(w, http.StatusBadRequest, "invalid request body")
-		return false
-	}
-
-	return true
+	return decodeJSON(w, r, target)
 }
 
 func (h *UserHandler) writeJSON(w http.ResponseWriter, status int, payload any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-
-	if err := json.NewEncoder(w).Encode(payload); err != nil {
-		h.logger.Error("encoding user response", "error", err)
-	}
+	writeJSON(h.logger, w, status, payload)
 }
 
 func (h *UserHandler) writeError(w http.ResponseWriter, status int, message string) {
-	h.writeJSON(w, status, model.ErrorResponse{Error: message})
+	writeError(h.logger, w, status, message)
 }
 
 func (h *UserHandler) writeUsecaseError(w http.ResponseWriter, err error) {

@@ -19,12 +19,19 @@ type stubUserUseCase struct {
 	usecase.UserUseCase
 }
 
+// stubAuthUseCase satisfies usecase.AuthUseCase so routing tests can register
+// the auth routes without reaching a use case.
+type stubAuthUseCase struct {
+	usecase.AuthUseCase
+}
+
 func newTestRouter() *http.ServeMux {
 	mux := http.NewServeMux()
-	route.NewRouter(
-		handler.NewHealthHandler(slog.Default(), usecase.NewHealthUseCase(repository.NewHealthRepository())),
-		handler.NewUserHandler(slog.Default(), stubUserUseCase{}),
-	).Register(mux)
+	route.NewRouter(route.Dependencies{
+		HealthHandler: handler.NewHealthHandler(slog.Default(), usecase.NewHealthUseCase(repository.NewHealthRepository())),
+		UserHandler:   handler.NewUserHandler(slog.Default(), stubUserUseCase{}),
+		AuthHandler:   handler.NewAuthHandler(slog.Default(), stubAuthUseCase{}, false),
+	}).Register(mux)
 
 	return mux
 }
