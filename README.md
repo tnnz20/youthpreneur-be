@@ -160,6 +160,10 @@ upgrading.
   `mentoring_status`, `capital_access`, and `partnership`; name, turnover
   values, IDs, and timestamps are not filterable. Deletes are soft and every
   mutation writes an `enterprise_audit_events` row in the same transaction.
+  Updates lock the enterprise row with `SELECT ... FOR UPDATE`, apply only the
+  requested fields, and return the committed row without a post-commit re-read.
+  Migration `000004` adds database `CHECK` constraints that keep turnover
+  non-negative and below `10000000000000`.
 
 ## Migrations
 

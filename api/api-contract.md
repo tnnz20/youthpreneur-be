@@ -565,8 +565,10 @@ unset.
 
 `initial_turnover` and `current_turnover` are non-negative `DECIMAL(15,2)`
 values serialized as JSON strings (for example `"1500.00"`) so precision is not
-lost through a float round trip. `district` is nullable and serialized as JSON
-`null` when unset.
+lost through a float round trip. Migration `000004` adds named `CHECK`
+constraints that reject negative turnover and values at or above
+`10000000000000` from any writer, not only this API. `district` is nullable and
+serialized as JSON `null` when unset.
 
 ---
 
