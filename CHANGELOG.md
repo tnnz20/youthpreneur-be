@@ -62,3 +62,32 @@
 - Moved embedded SQL migrations from `migrations/` to `db/migrations/`.
 - User soft delete now updates `users` and `user_profiles` in one transaction
   with the same `deleted_at` and `updated_at` timestamp.
+
+### Fixed
+
+- `APP_AUTH_SECRET` no longer has a usable default: startup rejects a missing or
+  empty secret in every environment and keeps the 32-byte minimum outside
+  development.
+- Password change, admin password reset, and account deactivation now revoke the
+  user's refresh sessions; resetting a password no longer leaves stolen refresh
+  sessions valid.
+- Replaying a rotated refresh token now revokes the user's entire refresh
+  session family instead of only rejecting the replayed token.
+- Expired refresh sessions are deleted opportunistically during login and
+  refresh, so the table no longer grows without bound.
+- Role and ownership checks now use the current database role loaded by
+  `Authenticate` instead of the JWT role claim, so stale admin claims cannot
+  retain access after demotion.
+- Login verifies the password before checking `IsActive`, so inactive accounts
+  cannot be distinguished from unknown emails or wrong passwords by timing.
+- Middleware error responses now share the handler `WriteError` helper instead
+  of a duplicate writer; the exported `RateLimiter.Allow` was made private.
+- General rate limiting now wraps CORS so disallowed-origin requests are also
+  counted, and expired cookie expiries are clamped to `MaxAge=0`.
+- Removed the redundant JWT signing-method type assertion that duplicated
+  `jwt.WithValidMethods`.
+- Documented the single-process rate-limiter limitation, the exact `APP_ENV`
+  cookie `Secure` rule, the `APP_ENVIRONMENT` to `APP_ENV` rename, session
+  revocation and cleanup behavior, and the password change/reset split.
+- Removed the duplicated `writeJSONError` middleware helper and the stale
+  "unsafe" note on admin password reset.

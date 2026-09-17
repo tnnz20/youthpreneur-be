@@ -16,7 +16,11 @@ The API uses cookie-based JWT authentication.
   development uses `Secure=false`.
 - `POST /auth/refresh` rotates the refresh token: the presented session is
   revoked and a replacement is issued in one transaction. Reusing a rotated
-  token fails with `401`.
+  token fails with `401` and revokes every refresh session for that user.
+- Password change, admin password reset, and account deactivation revoke every
+  refresh session for the affected user.
+- Expired refresh sessions are deleted opportunistically during login and
+  refresh; active sessions are never deleted.
 - `POST /auth/logout` revokes the presented refresh token and clears both
   cookies.
 
@@ -76,7 +80,8 @@ Verify credentials, start a refresh session, and set auth cookies.
 
 **Endpoint:** `POST /auth/login`
 
-**Authentication:** Public. Rate limited to 5 requests per minute per client IP.
+**Authentication:** Public. Rate limited by client IP; the default is 5 requests
+per minute and `APP_RATE_LIMIT_LOGIN_PER_MINUTE` overrides it.
 
 **Content-Type:** `application/json`
 
@@ -128,7 +133,8 @@ Rotate the refresh token and issue a new access token.
 **Endpoint:** `POST /auth/refresh`
 
 **Authentication:** Public, but requires the `refresh_token` cookie. Rate
-limited to 10 requests per minute per client IP.
+limited by client IP; the default is 10 requests per minute and
+`APP_RATE_LIMIT_REFRESH_PER_MINUTE` overrides it.
 
 **Request:** No body.
 
@@ -461,7 +467,9 @@ Change password when the current password is known.
 
 **Endpoint:** `PUT /users/{publicID}/password`
 
-**Authentication:** Authenticated; only the user in the path or an admin.
+**Authentication:** Authenticated; only the user in the path or an admin. This
+is self-service: changing your own password requires the current password. To set
+another user's password, an admin uses `POST /users/{publicID}/password/reset`.
 
 **Request Fields:**
 
@@ -480,7 +488,8 @@ Change password when the current password is known.
 ```
 
 The update is atomic against the current stored password hash. Passwords must be
-8 to 72 bytes. The password is never returned.
+8 to 72 bytes. The password is never returned. A successful change revokes every
+refresh session for the user.
 
 **Status Code:** `204 No Content`
 
@@ -511,7 +520,8 @@ Set a password without the current password.
 }
 ```
 
-The server does not generate or return a password. Response has no body.
+The server does not generate or return a password. Response has no body. A
+successful reset revokes every refresh session for the user.
 
 **Status Code:** `204 No Content`
 
@@ -568,13 +578,20 @@ answered with the allowed methods and headers. A request carrying an origin that
 is not configured is rejected with `403`.
 
 Rate limiting is keyed by client IP in fixed one-minute windows and returns
-`429` with a `Retry-After` header when exceeded:
+`429` with a `Retry-After` header when exceeded. Rate limiting runs before CORS
+so disallowed-origin requests are counted too.
 
-| Bucket | Limit |
-| --- | --- |
-| Login (`POST /auth/login`) | 5 per minute |
-| Refresh (`POST /auth/refresh`) | 10 per minute |
-| General API | 60 per minute |
+| Bucket | Default | Override |
+| --- | --- | --- |
+| Login (`POST /auth/login`) | 5 per minute | `APP_RATE_LIMIT_LOGIN_PER_MINUTE` |
+| Refresh (`POST /auth/refresh`) | 10 per minute | `APP_RATE_LIMIT_REFRESH_PER_MINUTE` |
+| General API | 60 per minute | `APP_RATE_LIMIT_GENERAL_PER_MINUTE` |
+
+The limiter uses the connection's `RemoteAddr` and in-memory state. It is only
+correct for direct, single-process exposure. Behind a reverse proxy all clients
+may share one address, and running multiple replicas multiplies the effective
+limit. Add trusted-proxy client-IP handling and shared storage before proxied or
+multi-replica deployments.
 
 ---
 
