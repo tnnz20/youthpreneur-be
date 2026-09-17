@@ -35,4 +35,7 @@ type RefreshSessionRepository interface {
 	RevokeRefreshSession(ctx context.Context, tokenHash string, revokedAt int64) error
 	// RevokeUserRefreshSessions revokes every active session for userID.
 	RevokeUserRefreshSessions(ctx context.Context, userID int, revokedAt int64) error
+	// DeleteExpiredRefreshSessions removes sessions whose expiry is at or
+	// before now. Active sessions are never removed.
+	DeleteExpiredRefreshSessions(ctx context.Context, now int64) error
 }

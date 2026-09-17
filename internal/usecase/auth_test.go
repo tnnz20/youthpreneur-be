@@ -47,9 +47,11 @@ type fakeSessionRepository struct {
 	sessions map[string]entity.RefreshSession
 	nextID   int
 
-	createErr error
-	rotateErr error
-	revokeErr error
+	createErr     error
+	rotateErr     error
+	revokeErr     error
+	revokeUserErr error
+	cleanupErr    error
 
 	lastCreated       entity.RefreshSession
 	lastRevokedHash   string
@@ -57,6 +59,7 @@ type fakeSessionRepository struct {
 	lastRotatedOld    string
 	lastRotatedNext   entity.RefreshSession
 	revokeUserCallFor int
+	cleanupCalls      int
 }
 
 func newFakeSessionRepository() *fakeSessionRepository {
@@ -133,12 +136,31 @@ func (f *fakeSessionRepository) RevokeRefreshSession(_ context.Context, tokenHas
 }
 
 func (f *fakeSessionRepository) RevokeUserRefreshSessions(_ context.Context, userID int, revokedAt int64) error {
+	if f.revokeUserErr != nil {
+		return f.revokeUserErr
+	}
+
 	f.revokeUserCallFor = userID
 	for hash, session := range f.sessions {
 		if session.UserID == userID && session.RevokedAt == nil {
 			revoked := revokedAt
 			session.RevokedAt = &revoked
 			f.sessions[hash] = session
+		}
+	}
+
+	return nil
+}
+
+func (f *fakeSessionRepository) DeleteExpiredRefreshSessions(_ context.Context, now int64) error {
+	f.cleanupCalls++
+	if f.cleanupErr != nil {
+		return f.cleanupErr
+	}
+
+	for hash, session := range f.sessions {
+		if session.ExpiresAt <= now {
+			delete(f.sessions, hash)
 		}
 	}
 
@@ -420,6 +442,116 @@ func TestRefreshRejectsDeletedUser(t *testing.T) {
 
 	if _, err := uc.Refresh(context.Background(), raw); !errors.Is(err, usecase.ErrInvalidRefreshToken) {
 		t.Fatalf("Refresh() error = %v, want ErrInvalidRefreshToken", err)
+	}
+}
+
+func TestRefreshReplayRevokesSessionFamily(t *testing.T) {
+	user := entity.User{ID: 3, PublicID: "YTP-000003", Role: entity.RoleMember, IsActive: true}
+	repo := &fakeUserRepository{findUser: user}
+	sessions := newFakeSessionRepository()
+	uc, tokens := newAuthUseCase(t, repo, sessions)
+
+	rawOld := "refresh-old"
+	if err := sessions.CreateRefreshSession(context.Background(), entity.RefreshSession{
+		UserID:    user.ID,
+		TokenHash: tokens.HashRefresh(rawOld),
+		ExpiresAt: time.Now().Add(time.Hour).Unix(),
+		CreatedAt: time.Now().Unix(),
+	}); err != nil {
+		t.Fatalf("seed session: %v", err)
+	}
+
+	rotated, err := uc.Refresh(context.Background(), rawOld)
+	if err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+
+	if _, err := uc.Refresh(context.Background(), rawOld); !errors.Is(err, usecase.ErrInvalidRefreshToken) {
+		t.Fatalf("replayed Refresh() error = %v, want ErrInvalidRefreshToken", err)
+	}
+
+	replacementHash := tokens.HashRefresh(rotated.RefreshToken)
+	if replacement, ok := sessions.sessions[replacementHash]; !ok || replacement.RevokedAt == nil {
+		t.Error("replay did not revoke the replacement session")
+	}
+	if _, err := uc.Refresh(context.Background(), rotated.RefreshToken); !errors.Is(err, usecase.ErrInvalidRefreshToken) {
+		t.Errorf("Refresh(replacement) error = %v, want ErrInvalidRefreshToken after family revocation", err)
+	}
+}
+
+func TestRefreshCleanupDeletesExpiredSessions(t *testing.T) {
+	now := time.Now().Unix()
+	user := entity.User{ID: 3, PublicID: "YTP-000003", Role: entity.RoleMember, IsActive: true}
+	repo := &fakeUserRepository{findUser: user}
+	sessions := newFakeSessionRepository()
+	uc, tokens := newAuthUseCase(t, repo, sessions)
+
+	activeRaw := "refresh-active"
+	sessions.sessions[tokens.HashRefresh(activeRaw)] = entity.RefreshSession{
+		UserID:    user.ID,
+		TokenHash: tokens.HashRefresh(activeRaw),
+		ExpiresAt: now + 3600,
+		CreatedAt: now,
+	}
+	expiredRaw := "refresh-expired"
+	sessions.sessions[tokens.HashRefresh(expiredRaw)] = entity.RefreshSession{
+		UserID:    user.ID,
+		TokenHash: tokens.HashRefresh(expiredRaw),
+		ExpiresAt: now - 1,
+		CreatedAt: now - 3600,
+	}
+
+	if _, err := uc.Refresh(context.Background(), activeRaw); err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+	if sessions.cleanupCalls == 0 {
+		t.Error("refresh did not run opportunistic cleanup")
+	}
+	if _, ok := sessions.sessions[tokens.HashRefresh(expiredRaw)]; ok {
+		t.Error("expired session was not deleted")
+	}
+	if _, ok := sessions.sessions[tokens.HashRefresh(activeRaw)]; !ok {
+		t.Error("active session was deleted during cleanup")
+	}
+}
+
+func TestRefreshToleratesCleanupFailure(t *testing.T) {
+	user := entity.User{ID: 3, PublicID: "YTP-000003", Role: entity.RoleMember, IsActive: true}
+	repo := &fakeUserRepository{findUser: user}
+	sessions := newFakeSessionRepository()
+	sessions.cleanupErr = errors.New("cleanup failed")
+	uc, tokens := newAuthUseCase(t, repo, sessions)
+
+	raw := "refresh-live"
+	sessions.sessions[tokens.HashRefresh(raw)] = entity.RefreshSession{
+		UserID:    user.ID,
+		TokenHash: tokens.HashRefresh(raw),
+		ExpiresAt: time.Now().Add(time.Hour).Unix(),
+		CreatedAt: time.Now().Unix(),
+	}
+
+	if _, err := uc.Refresh(context.Background(), raw); err != nil {
+		t.Fatalf("Refresh() error = %v, want success despite cleanup failure", err)
+	}
+}
+
+func TestLoginRunsCleanup(t *testing.T) {
+	repo := &fakeUserRepository{findUser: entity.User{
+		ID:       7,
+		PublicID: "YTP-000007",
+		Email:    "alice@example.com",
+		Password: hashFor(t, "correct-horse"),
+		Role:     entity.RoleMember,
+		IsActive: true,
+	}}
+	sessions := newFakeSessionRepository()
+	uc, _ := newAuthUseCase(t, repo, sessions)
+
+	if _, err := uc.Login(context.Background(), usecase.LoginInput{Email: "alice@example.com", Password: "correct-horse"}); err != nil {
+		t.Fatalf("Login() error = %v", err)
+	}
+	if sessions.cleanupCalls == 0 {
+		t.Error("login did not run opportunistic cleanup")
 	}
 }
 

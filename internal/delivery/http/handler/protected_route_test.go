@@ -86,6 +86,18 @@ func TestProtectedRouteRejectsNonAdmin(t *testing.T) {
 	}
 }
 
+func TestProtectedRouteRejectsStaleAdminClaim(t *testing.T) {
+	parser := routeParser{claims: token.AccessClaims{PublicID: "YTP-000009", Role: entity.RoleAdmin}}
+	lookup := routeLookup{user: entity.User{PublicID: "YTP-000009", Role: entity.RoleMember, IsActive: true}}
+	mux := newProtectedRouter(&fakeUserUseCase{}, parser, lookup)
+
+	rec := serveWithCookie(t, mux, http.MethodGet, "/users", "", "good")
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d for demoted admin", rec.Code, http.StatusForbidden)
+	}
+}
+
 func TestProtectedRouteAllowsAdmin(t *testing.T) {
 	parser := routeParser{claims: token.AccessClaims{PublicID: "YTP-000009", Role: entity.RoleAdmin}}
 	lookup := routeLookup{user: entity.User{PublicID: "YTP-000009", Role: entity.RoleAdmin, IsActive: true}}

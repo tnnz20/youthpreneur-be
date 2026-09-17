@@ -161,6 +161,78 @@ func TestRequireAdmin(t *testing.T) {
 	}
 }
 
+func TestAuthenticateStoresCurrentDBIdentity(t *testing.T) {
+	claims := token.AccessClaims{UserID: 4, PublicID: "YTP-000004", Role: entity.RoleAdmin}
+	auth := middleware.NewAuthenticator(
+		fakeParser{claims: claims},
+		fakeLookup{user: entity.User{ID: 4, PublicID: "YTP-000004", Role: entity.RoleMember, IsActive: true}},
+		slog.Default(),
+	)
+
+	var got entity.User
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got, _ = middleware.IdentityFromContext(r.Context())
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	rec := authRequest(t, auth.Authenticate(next), "", "good")
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+	if got.Role != entity.RoleMember {
+		t.Errorf("identity role = %q, want current DB role %q", got.Role, entity.RoleMember)
+	}
+}
+
+func TestRequireAdminUsesCurrentDBRole(t *testing.T) {
+	cases := []struct {
+		name       string
+		claimRole  entity.Role
+		dbRole     entity.Role
+		wantStatus int
+	}{
+		{name: "stale admin claim demoted in DB", claimRole: entity.RoleAdmin, dbRole: entity.RoleMember, wantStatus: http.StatusForbidden},
+		{name: "promoted user with stale member claim", claimRole: entity.RoleMember, dbRole: entity.RoleAdmin, wantStatus: http.StatusNoContent},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			auth := middleware.NewAuthenticator(
+				fakeParser{claims: token.AccessClaims{PublicID: "YTP-000001", Role: tc.claimRole}},
+				fakeLookup{user: entity.User{PublicID: "YTP-000001", Role: tc.dbRole, IsActive: true}},
+				slog.Default(),
+			)
+			next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusNoContent)
+			})
+
+			rec := authRequest(t, auth.Authenticate(auth.RequireAdmin(next)), "", "good")
+
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d", rec.Code, tc.wantStatus)
+			}
+		})
+	}
+}
+
+func TestRequireSelfUsesCurrentDBRole(t *testing.T) {
+	auth := middleware.NewAuthenticator(
+		fakeParser{claims: token.AccessClaims{PublicID: "YTP-000009", Role: entity.RoleAdmin}},
+		fakeLookup{user: entity.User{PublicID: "YTP-000009", Role: entity.RoleMember, IsActive: true}},
+		slog.Default(),
+	)
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	rec := authRequest(t, auth.Authenticate(auth.RequireSelf(next)), "YTP-000001", "good")
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d for demoted admin on another user's route", rec.Code, http.StatusForbidden)
+	}
+}
+
 func TestRequireAdminRejectsMissingClaims(t *testing.T) {
 	auth := middleware.NewAuthenticator(fakeParser{}, fakeLookup{}, slog.Default())
 	next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})

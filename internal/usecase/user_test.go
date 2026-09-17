@@ -170,7 +170,7 @@ func validCreateInput() usecase.CreateUserInput {
 
 func TestCreateUserGeneratesPublicIDHashesPasswordAndNormalizesInput(t *testing.T) {
 	repo := &fakeUserRepository{}
-	uc := usecase.NewUserUseCase(repo)
+	uc := usecase.NewUserUseCase(repo, newFakeSessionRepository())
 
 	user, err := uc.CreateUser(context.Background(), validCreateInput())
 	if err != nil {
@@ -208,7 +208,7 @@ func TestCreateUserGeneratesPublicIDHashesPasswordAndNormalizesInput(t *testing.
 
 func TestCreateUserDefaultsToMemberRole(t *testing.T) {
 	repo := &fakeUserRepository{}
-	uc := usecase.NewUserUseCase(repo)
+	uc := usecase.NewUserUseCase(repo, newFakeSessionRepository())
 
 	user, err := uc.CreateUser(context.Background(), validCreateInput())
 	if err != nil {
@@ -221,7 +221,7 @@ func TestCreateUserDefaultsToMemberRole(t *testing.T) {
 
 func TestCreateUserRejectsPasswordOverBcryptLimit(t *testing.T) {
 	repo := &fakeUserRepository{}
-	uc := usecase.NewUserUseCase(repo)
+	uc := usecase.NewUserUseCase(repo, newFakeSessionRepository())
 
 	input := validCreateInput()
 	input.Password = strings.Repeat("a", 73)
@@ -236,7 +236,7 @@ func TestCreateUserRejectsPasswordOverBcryptLimit(t *testing.T) {
 
 func TestCreateUserRetriesOnPublicIDCollision(t *testing.T) {
 	repo := &fakeUserRepository{createFailures: 2}
-	uc := usecase.NewUserUseCase(repo)
+	uc := usecase.NewUserUseCase(repo, newFakeSessionRepository())
 
 	user, err := uc.CreateUser(context.Background(), validCreateInput())
 	if err != nil {
@@ -252,7 +252,7 @@ func TestCreateUserRetriesOnPublicIDCollision(t *testing.T) {
 
 func TestCreateUserStopsAfterPublicIDAttempts(t *testing.T) {
 	repo := &fakeUserRepository{createFailures: 100}
-	uc := usecase.NewUserUseCase(repo)
+	uc := usecase.NewUserUseCase(repo, newFakeSessionRepository())
 
 	_, err := uc.CreateUser(context.Background(), validCreateInput())
 	if !errors.Is(err, usecase.ErrPublicIDGeneration) {
@@ -265,7 +265,7 @@ func TestCreateUserStopsAfterPublicIDAttempts(t *testing.T) {
 
 func TestCreateUserMapsDuplicateEmail(t *testing.T) {
 	repo := &fakeUserRepository{createError: repository.ErrDuplicateEmail}
-	uc := usecase.NewUserUseCase(repo)
+	uc := usecase.NewUserUseCase(repo, newFakeSessionRepository())
 
 	_, err := uc.CreateUser(context.Background(), validCreateInput())
 	if !errors.Is(err, usecase.ErrEmailTaken) {
@@ -299,7 +299,7 @@ func TestCreateUserValidation(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := &fakeUserRepository{}
-			uc := usecase.NewUserUseCase(repo)
+			uc := usecase.NewUserUseCase(repo, newFakeSessionRepository())
 
 			if _, err := uc.CreateUser(context.Background(), tc.input); !errors.Is(err, usecase.ErrBadRequest) {
 				t.Fatalf("CreateUser() error = %v, want ErrBadRequest", err)
@@ -315,7 +315,7 @@ func TestCreateUserValidation(t *testing.T) {
 
 func TestFindUsersReturnsNextCursorOnlyWhenMoreRowsExist(t *testing.T) {
 	repo := &fakeUserRepository{users: []entity.User{{ID: 1}, {ID: 2}, {ID: 3}}}
-	uc := usecase.NewUserUseCase(repo)
+	uc := usecase.NewUserUseCase(repo, newFakeSessionRepository())
 
 	result, err := uc.FindUsers(context.Background(), usecase.FindUsersInput{Limit: 2})
 	if err != nil {
@@ -334,7 +334,7 @@ func TestFindUsersReturnsNextCursorOnlyWhenMoreRowsExist(t *testing.T) {
 
 func TestFindUsersOmitsCursorOnLastPage(t *testing.T) {
 	repo := &fakeUserRepository{users: []entity.User{{ID: 1}, {ID: 2}}}
-	uc := usecase.NewUserUseCase(repo)
+	uc := usecase.NewUserUseCase(repo, newFakeSessionRepository())
 
 	result, err := uc.FindUsers(context.Background(), usecase.FindUsersInput{Limit: 5})
 	if err != nil {
@@ -350,7 +350,7 @@ func TestFindUsersOmitsCursorOnLastPage(t *testing.T) {
 
 func TestFindUsersClampsLimit(t *testing.T) {
 	repo := &fakeUserRepository{}
-	uc := usecase.NewUserUseCase(repo)
+	uc := usecase.NewUserUseCase(repo, newFakeSessionRepository())
 
 	if _, err := uc.FindUsers(context.Background(), usecase.FindUsersInput{Limit: 1000}); err != nil {
 		t.Fatalf("FindUsers() error = %v", err)
@@ -369,7 +369,7 @@ func TestFindUsersClampsLimit(t *testing.T) {
 
 func TestFindUsersRejectsUnknownGender(t *testing.T) {
 	repo := &fakeUserRepository{}
-	uc := usecase.NewUserUseCase(repo)
+	uc := usecase.NewUserUseCase(repo, newFakeSessionRepository())
 
 	if _, err := uc.FindUsers(context.Background(), usecase.FindUsersInput{Gender: "other"}); !errors.Is(err, usecase.ErrBadRequest) {
 		t.Fatalf("FindUsers() error = %v, want ErrBadRequest", err)
@@ -378,7 +378,7 @@ func TestFindUsersRejectsUnknownGender(t *testing.T) {
 
 func TestGetUserMapsNotFound(t *testing.T) {
 	repo := &fakeUserRepository{}
-	uc := usecase.NewUserUseCase(repo)
+	uc := usecase.NewUserUseCase(repo, newFakeSessionRepository())
 
 	if _, err := uc.GetUser(context.Background(), "YTP-000001"); !errors.Is(err, usecase.ErrUserNotFound) {
 		t.Fatalf("GetUser() error = %v, want ErrUserNotFound", err)
@@ -387,7 +387,7 @@ func TestGetUserMapsNotFound(t *testing.T) {
 
 func TestDeleteUserMapsNotFound(t *testing.T) {
 	repo := &fakeUserRepository{softDeleteErr: repository.ErrUserNotFound}
-	uc := usecase.NewUserUseCase(repo)
+	uc := usecase.NewUserUseCase(repo, newFakeSessionRepository())
 
 	if err := uc.DeleteUser(context.Background(), "YTP-000001"); !errors.Is(err, usecase.ErrUserNotFound) {
 		t.Fatalf("DeleteUser() error = %v, want ErrUserNotFound", err)
@@ -407,7 +407,7 @@ func TestChangePasswordRejectsWrongCurrentPassword(t *testing.T) {
 	}
 
 	repo := &fakeUserRepository{findUser: entity.User{PublicID: "YTP-000001", Password: string(hash)}}
-	uc := usecase.NewUserUseCase(repo)
+	uc := usecase.NewUserUseCase(repo, newFakeSessionRepository())
 
 	err = uc.ChangePassword(context.Background(), "YTP-000001", usecase.ChangePasswordInput{
 		CurrentPassword: "wrong-horse",
@@ -428,7 +428,7 @@ func TestChangePasswordStoresNewHash(t *testing.T) {
 	}
 
 	repo := &fakeUserRepository{findUser: entity.User{PublicID: "YTP-000001", Password: string(hash)}}
-	uc := usecase.NewUserUseCase(repo)
+	uc := usecase.NewUserUseCase(repo, newFakeSessionRepository())
 
 	err = uc.ChangePassword(context.Background(), "YTP-000001", usecase.ChangePasswordInput{
 		CurrentPassword: "correct-horse",
@@ -458,7 +458,7 @@ func TestChangePasswordMapsLostUpdateToInvalidCredentials(t *testing.T) {
 		findUser:          entity.User{PublicID: "YTP-000001", Password: string(hash)},
 		changePasswordErr: repository.ErrUserNotFound,
 	}
-	uc := usecase.NewUserUseCase(repo)
+	uc := usecase.NewUserUseCase(repo, newFakeSessionRepository())
 
 	err = uc.ChangePassword(context.Background(), "YTP-000001", usecase.ChangePasswordInput{
 		CurrentPassword: "correct-horse",
@@ -471,7 +471,7 @@ func TestChangePasswordMapsLostUpdateToInvalidCredentials(t *testing.T) {
 
 func TestChangePasswordValidatesNewPasswordBeforeLookup(t *testing.T) {
 	repo := &fakeUserRepository{findErr: errors.New("should not be read")}
-	uc := usecase.NewUserUseCase(repo)
+	uc := usecase.NewUserUseCase(repo, newFakeSessionRepository())
 
 	err := uc.ChangePassword(context.Background(), "YTP-000001", usecase.ChangePasswordInput{
 		CurrentPassword: "correct-horse",
@@ -483,8 +483,8 @@ func TestChangePasswordValidatesNewPasswordBeforeLookup(t *testing.T) {
 }
 
 func TestResetPasswordStoresNewHashWithoutCurrentPassword(t *testing.T) {
-	repo := &fakeUserRepository{}
-	uc := usecase.NewUserUseCase(repo)
+	repo := &fakeUserRepository{findUser: entity.User{ID: 11, PublicID: "YTP-000001"}}
+	uc := usecase.NewUserUseCase(repo, newFakeSessionRepository())
 
 	if err := uc.ResetPassword(context.Background(), "YTP-000001", "new-secret"); err != nil {
 		t.Fatalf("ResetPassword() error = %v", err)
@@ -496,7 +496,7 @@ func TestResetPasswordStoresNewHashWithoutCurrentPassword(t *testing.T) {
 
 func TestUpdateStatusRecordsActiveFlag(t *testing.T) {
 	repo := &fakeUserRepository{findUser: entity.User{PublicID: "YTP-000001"}}
-	uc := usecase.NewUserUseCase(repo)
+	uc := usecase.NewUserUseCase(repo, newFakeSessionRepository())
 
 	if _, err := uc.UpdateStatus(context.Background(), "YTP-000001", false); err != nil {
 		t.Fatalf("UpdateStatus() error = %v", err)
@@ -508,9 +508,93 @@ func TestUpdateStatusRecordsActiveFlag(t *testing.T) {
 
 func TestUpdateProfileRejectsUnknownGender(t *testing.T) {
 	repo := &fakeUserRepository{}
-	uc := usecase.NewUserUseCase(repo)
+	uc := usecase.NewUserUseCase(repo, newFakeSessionRepository())
 
 	if _, err := uc.UpdateProfile(context.Background(), "YTP-000001", entity.Profile{Gender: "other"}); !errors.Is(err, usecase.ErrBadRequest) {
 		t.Fatalf("UpdateProfile() error = %v, want ErrBadRequest", err)
+	}
+}
+
+func TestChangePasswordRevokesRefreshSessions(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("correct-horse"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("hash fixture: %v", err)
+	}
+
+	repo := &fakeUserRepository{findUser: entity.User{ID: 11, PublicID: "YTP-000001", Password: string(hash)}}
+	sessions := newFakeSessionRepository()
+	uc := usecase.NewUserUseCase(repo, sessions)
+
+	err = uc.ChangePassword(context.Background(), "YTP-000001", usecase.ChangePasswordInput{
+		CurrentPassword: "correct-horse",
+		NewPassword:     "new-secret",
+	})
+	if err != nil {
+		t.Fatalf("ChangePassword() error = %v", err)
+	}
+	if sessions.revokeUserCallFor != 11 {
+		t.Errorf("revoked sessions for user %d, want 11", sessions.revokeUserCallFor)
+	}
+}
+
+func TestResetPasswordRevokesRefreshSessions(t *testing.T) {
+	repo := &fakeUserRepository{findUser: entity.User{ID: 12, PublicID: "YTP-000001"}}
+	sessions := newFakeSessionRepository()
+	uc := usecase.NewUserUseCase(repo, sessions)
+
+	if err := uc.ResetPassword(context.Background(), "YTP-000001", "new-secret"); err != nil {
+		t.Fatalf("ResetPassword() error = %v", err)
+	}
+	if sessions.revokeUserCallFor != 12 {
+		t.Errorf("revoked sessions for user %d, want 12", sessions.revokeUserCallFor)
+	}
+}
+
+func TestUpdateStatusDeactivationRevokesRefreshSessions(t *testing.T) {
+	repo := &fakeUserRepository{findUser: entity.User{ID: 13, PublicID: "YTP-000001"}}
+	sessions := newFakeSessionRepository()
+	uc := usecase.NewUserUseCase(repo, sessions)
+
+	if _, err := uc.UpdateStatus(context.Background(), "YTP-000001", false); err != nil {
+		t.Fatalf("UpdateStatus() error = %v", err)
+	}
+	if sessions.revokeUserCallFor != 13 {
+		t.Errorf("revoked sessions for user %d, want 13", sessions.revokeUserCallFor)
+	}
+}
+
+func TestUpdateStatusActivationKeepsRefreshSessions(t *testing.T) {
+	repo := &fakeUserRepository{findUser: entity.User{ID: 13, PublicID: "YTP-000001"}}
+	sessions := newFakeSessionRepository()
+	uc := usecase.NewUserUseCase(repo, sessions)
+
+	if _, err := uc.UpdateStatus(context.Background(), "YTP-000001", true); err != nil {
+		t.Fatalf("UpdateStatus() error = %v", err)
+	}
+	if sessions.revokeUserCallFor != 0 {
+		t.Errorf("revoked sessions for user %d, want no revocation on activation", sessions.revokeUserCallFor)
+	}
+}
+
+func TestChangePasswordReturnsRevocationError(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("correct-horse"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("hash fixture: %v", err)
+	}
+
+	repo := &fakeUserRepository{findUser: entity.User{ID: 11, PublicID: "YTP-000001", Password: string(hash)}}
+	sessions := newFakeSessionRepository()
+	sessions.revokeUserErr = errors.New("revoke failed")
+	uc := usecase.NewUserUseCase(repo, sessions)
+
+	err = uc.ChangePassword(context.Background(), "YTP-000001", usecase.ChangePasswordInput{
+		CurrentPassword: "correct-horse",
+		NewPassword:     "new-secret",
+	})
+	if err == nil {
+		t.Fatal("ChangePassword() error = nil, want revocation error")
+	}
+	if errors.Is(err, usecase.ErrInvalidCredentials) || errors.Is(err, usecase.ErrBadRequest) {
+		t.Errorf("ChangePassword() error = %v, want wrapped infrastructure error", err)
 	}
 }

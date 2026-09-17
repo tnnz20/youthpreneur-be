@@ -171,6 +171,32 @@ func TestLoginMarksCookiesSecureInProduction(t *testing.T) {
 	}
 }
 
+func TestLoginClampsExpiredCookieMaxAgeToZero(t *testing.T) {
+	past := time.Now().Add(-time.Minute)
+	uc := &fakeAuthUseCase{loginResult: usecase.LoginResult{
+		AuthTokens: usecase.AuthTokens{
+			AccessToken:      "expired-access",
+			RefreshToken:     "expired-refresh",
+			AccessExpiresAt:  past,
+			RefreshExpiresAt: past,
+		},
+	}}
+
+	rec := serveAuth(t, newAuthRouter(uc, false), http.MethodPost, "/auth/login", `{
+		"email": "alice@example.com",
+		"password": "secret123"
+	}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	for _, cookie := range cookiesByName(rec) {
+		if cookie.MaxAge != 0 {
+			t.Errorf("cookie %s MaxAge = %d, want 0 for an already expired token", cookie.Name, cookie.MaxAge)
+		}
+	}
+}
+
 func TestLoginRejectsInvalidCredentials(t *testing.T) {
 	uc := &fakeAuthUseCase{loginErr: usecase.ErrInvalidCredentials}
 

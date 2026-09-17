@@ -135,4 +135,33 @@ func TestRefreshSessionRepositoryIntegration(t *testing.T) {
 	if err := repo.RevokeUserRefreshSessions(ctx, user.ID, now+6); err != nil {
 		t.Fatalf("RevokeUserRefreshSessions() error = %v", err)
 	}
+
+	activeHash := fmt.Sprintf("active-%d", suffix)
+	expiredHash := fmt.Sprintf("expired-%d", suffix)
+	if err := repo.CreateRefreshSession(ctx, entity.RefreshSession{
+		UserID:    user.ID,
+		TokenHash: activeHash,
+		ExpiresAt: now + 3600,
+		CreatedAt: now + 7,
+	}); err != nil {
+		t.Fatalf("CreateRefreshSession(active) error = %v", err)
+	}
+	if err := repo.CreateRefreshSession(ctx, entity.RefreshSession{
+		UserID:    user.ID,
+		TokenHash: expiredHash,
+		ExpiresAt: now - 1,
+		CreatedAt: now - 3600,
+	}); err != nil {
+		t.Fatalf("CreateRefreshSession(expired) error = %v", err)
+	}
+
+	if err := repo.DeleteExpiredRefreshSessions(ctx, now); err != nil {
+		t.Fatalf("DeleteExpiredRefreshSessions() error = %v", err)
+	}
+	if _, err := repo.FindRefreshSession(ctx, expiredHash); !errors.Is(err, repository.ErrRefreshSessionNotFound) {
+		t.Errorf("expired session find error = %v, want ErrRefreshSessionNotFound after cleanup", err)
+	}
+	if _, err := repo.FindRefreshSession(ctx, activeHash); err != nil {
+		t.Errorf("active session find error = %v, want retained", err)
+	}
 }

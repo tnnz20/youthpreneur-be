@@ -4,7 +4,6 @@ package middleware
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -42,12 +41,25 @@ func NewAuthenticator(tokens AccessTokenParser, users UserLookup, logger *slog.L
 // context.
 type claimsContextKey struct{}
 
+// identityContextKey is the unexported key for the current database user in a
+// request context.
+type identityContextKey struct{}
+
 // ClaimsFromContext returns the authenticated access claims stored by
 // Authenticate.
 func ClaimsFromContext(ctx context.Context) (token.AccessClaims, bool) {
 	claims, ok := ctx.Value(claimsContextKey{}).(token.AccessClaims)
 
 	return claims, ok
+}
+
+// IdentityFromContext returns the current database user loaded by Authenticate.
+// Authorization must use this identity so a stale JWT role claim cannot grant
+// access after a role change or demotion.
+func IdentityFromContext(ctx context.Context) (entity.User, bool) {
+	user, ok := ctx.Value(identityContextKey{}).(entity.User)
+
+	return user, ok
 }
 
 // Authenticate rejects requests with a missing, invalid, or expired access
@@ -57,13 +69,13 @@ func (a *Authenticator) Authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie(handler.AccessTokenCookie)
 		if err != nil {
-			writeJSONError(w, http.StatusUnauthorized, "unauthorized")
+			handler.WriteError(a.logger, w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
 
 		claims, err := a.tokens.ParseAccess(cookie.Value)
 		if err != nil {
-			writeJSONError(w, http.StatusUnauthorized, "unauthorized")
+			handler.WriteError(a.logger, w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
 
@@ -72,29 +84,32 @@ func (a *Authenticator) Authenticate(next http.Handler) http.Handler {
 			if !errors.Is(err, repository.ErrUserNotFound) {
 				a.logger.Error("loading authenticated user", "error", err)
 			}
-			writeJSONError(w, http.StatusUnauthorized, "unauthorized")
+			handler.WriteError(a.logger, w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
 		if !user.IsActive {
-			writeJSONError(w, http.StatusUnauthorized, "unauthorized")
+			handler.WriteError(a.logger, w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
 
 		ctx := context.WithValue(r.Context(), claimsContextKey{}, claims)
+		ctx = context.WithValue(ctx, identityContextKey{}, user)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
-// RequireAdmin allows only admin claims through and rejects others with 403.
+// RequireAdmin allows only the current database role admin through and rejects
+// others with 403. It uses the identity loaded by Authenticate rather than the
+// JWT role claim, so a demoted admin loses access immediately.
 func (a *Authenticator) RequireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		claims, ok := ClaimsFromContext(r.Context())
+		identity, ok := IdentityFromContext(r.Context())
 		if !ok {
-			writeJSONError(w, http.StatusUnauthorized, "unauthorized")
+			handler.WriteError(a.logger, w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
-		if claims.Role != entity.RoleAdmin {
-			writeJSONError(w, http.StatusForbidden, "forbidden")
+		if identity.Role != entity.RoleAdmin {
+			handler.WriteError(a.logger, w, http.StatusForbidden, "forbidden")
 			return
 		}
 
@@ -103,31 +118,20 @@ func (a *Authenticator) RequireAdmin(next http.Handler) http.Handler {
 }
 
 // RequireSelf allows admins and the user whose public ID matches the route
-// publicID, rejecting everyone else with 403.
+// publicID, rejecting everyone else with 403. It uses the current database
+// identity, not the JWT claims.
 func (a *Authenticator) RequireSelf(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		claims, ok := ClaimsFromContext(r.Context())
+		identity, ok := IdentityFromContext(r.Context())
 		if !ok {
-			writeJSONError(w, http.StatusUnauthorized, "unauthorized")
+			handler.WriteError(a.logger, w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
-		if claims.Role == entity.RoleAdmin || claims.PublicID == r.PathValue("publicID") {
+		if identity.Role == entity.RoleAdmin || identity.PublicID == r.PathValue("publicID") {
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		writeJSONError(w, http.StatusForbidden, "forbidden")
+		handler.WriteError(a.logger, w, http.StatusForbidden, "forbidden")
 	})
-}
-
-// writeJSONError writes the standard error body used across the API.
-func writeJSONError(w http.ResponseWriter, status int, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-
-	body, err := json.Marshal(map[string]string{"error": message})
-	if err != nil {
-		return
-	}
-	_, _ = w.Write(append(body, '\n'))
 }

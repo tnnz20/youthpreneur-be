@@ -106,8 +106,8 @@ func TestLoadAuthDefaults(t *testing.T) {
 
 	cfg := Load()
 
-	if cfg.Auth.Secret != defaultAuthSecret {
-		t.Errorf("secret = %q, want default", cfg.Auth.Secret)
+	if cfg.Auth.Secret != "" {
+		t.Errorf("secret = %q, want empty when unset", cfg.Auth.Secret)
 	}
 	if cfg.Auth.AccessTokenTTL != defaultAccessTTL {
 		t.Errorf("access ttl = %v, want %v", cfg.Auth.AccessTokenTTL, defaultAccessTTL)
@@ -132,6 +132,26 @@ func TestLoadAuthOverrides(t *testing.T) {
 	}
 	if cfg.Auth.RefreshTokenTTL != 24*time.Hour {
 		t.Errorf("refresh ttl = %v, want %v", cfg.Auth.RefreshTokenTTL, 24*time.Hour)
+	}
+}
+
+func TestValidateRequiresAuthSecret(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  Config
+	}{
+		{name: "missing in development", cfg: Config{Environment: "development"}},
+		{name: "missing in production", cfg: Config{Environment: "production"}},
+		{name: "empty in development", cfg: Config{Environment: "development", Auth: AuthConfig{Secret: ""}}},
+		{name: "empty in production", cfg: Config{Environment: "production", Auth: AuthConfig{Secret: ""}}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.cfg.Validate(); err == nil {
+				t.Error("Validate() error = nil, want missing-secret rejection")
+			}
+		})
 	}
 }
 

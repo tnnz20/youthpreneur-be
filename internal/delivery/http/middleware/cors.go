@@ -1,6 +1,10 @@
 package middleware
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/tnnz20/youthpreneur-be/internal/delivery/http/handler"
+)
 
 // CORS returns middleware that permits credentialed requests only from the
 // configured origins. OPTIONS preflight requests are answered directly, and a
@@ -17,7 +21,7 @@ func CORS(allowedOrigins []string) func(http.Handler) http.Handler {
 			if origin != "" {
 				w.Header().Add("Vary", "Origin")
 				if _, ok := allowed[origin]; !ok {
-					writeJSONError(w, http.StatusForbidden, "origin not allowed")
+					handler.WriteError(nil, w, http.StatusForbidden, "origin not allowed")
 					return
 				}
 

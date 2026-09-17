@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -64,8 +65,12 @@ type RateLimitConfig struct {
 	GeneralPerMinute int
 }
 
-// Validate rejects settings that are unsafe outside development.
+// Validate rejects a missing auth secret in every environment and a weak secret
+// outside development.
 func (c Config) Validate() error {
+	if c.Auth.Secret == "" {
+		return errors.New("APP_AUTH_SECRET is required")
+	}
 	if c.Environment != "development" && len(c.Auth.Secret) < minAuthSecretLength {
 		return fmt.Errorf("APP_AUTH_SECRET must be at least %d bytes outside development", minAuthSecretLength)
 	}
@@ -93,11 +98,8 @@ func (c PostgresConfig) DSN() string {
 
 const (
 	defaultShutdownTimeout = 10 * time.Second
-	// defaultAuthSecret is intentionally weak. Validate rejects it outside
-	// development so deployments must supply APP_AUTH_SECRET.
-	defaultAuthSecret = "dev-only-insecure-secret-change-me"
-	defaultAccessTTL  = 15 * time.Minute
-	defaultRefreshTTL = 7 * 24 * time.Hour
+	defaultAccessTTL       = 15 * time.Minute
+	defaultRefreshTTL      = 7 * 24 * time.Hour
 	// defaultCORSOrigins covers the common local frontend ports.
 	defaultCORSOrigins      = "http://localhost:3000,http://localhost:5173"
 	defaultLoginRateLimit   = 5
@@ -114,7 +116,6 @@ func Load() Config {
 	v.SetDefault("app.environment", "development")
 	v.SetDefault("app.version", "dev")
 	v.SetDefault("app.shutdown_timeout", defaultShutdownTimeout)
-	v.SetDefault("auth.secret", defaultAuthSecret)
 	v.SetDefault("auth.access_token_ttl", defaultAccessTTL)
 	v.SetDefault("auth.refresh_token_ttl", defaultRefreshTTL)
 	v.SetDefault("cors.allowed_origins", defaultCORSOrigins)

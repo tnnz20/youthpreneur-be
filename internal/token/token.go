@@ -74,11 +74,7 @@ func (s *Service) IssueAccess(user entity.User, now time.Time) (string, error) {
 func (s *Service) ParseAccess(raw string) (AccessClaims, error) {
 	var claims AccessClaims
 
-	parsed, err := jwt.ParseWithClaims(raw, &claims, func(t *jwt.Token) (any, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, ErrInvalidToken
-		}
-
+	parsed, err := jwt.ParseWithClaims(raw, &claims, func(*jwt.Token) (any, error) {
 		return s.secret, nil
 	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}), jwt.WithIssuer(issuer))
 	if err != nil || !parsed.Valid {

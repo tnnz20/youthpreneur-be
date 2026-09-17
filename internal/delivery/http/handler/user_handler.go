@@ -186,9 +186,8 @@ func (h *UserHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ResetPassword handles POST /users/{publicID}/password/reset.
-//
-// Unsafe until authentication and admin authorization middleware is enabled.
+// ResetPassword handles POST /users/{publicID}/password/reset. It is the admin
+// path for setting another user's password.
 func (h *UserHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	var request model.ResetPasswordRequest
 	if !h.decode(w, r, &request) {
@@ -212,7 +211,7 @@ func (h *UserHandler) writeJSON(w http.ResponseWriter, status int, payload any) 
 }
 
 func (h *UserHandler) writeError(w http.ResponseWriter, status int, message string) {
-	writeError(h.logger, w, status, message)
+	WriteError(h.logger, w, status, message)
 }
 
 func (h *UserHandler) writeUsecaseError(w http.ResponseWriter, err error) {

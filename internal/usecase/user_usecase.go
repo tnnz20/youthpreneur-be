@@ -134,15 +134,19 @@ type UserUseCase interface {
 }
 
 type userUsecase struct {
-	repo repository.UserRepository
-	now  func() int64
+	repo     repository.UserRepository
+	sessions repository.RefreshSessionRepository
+	now      func() int64
 }
 
-// NewUserUseCase creates a user use case backed by repo.
-func NewUserUseCase(repo repository.UserRepository) UserUseCase {
+// NewUserUseCase creates a user use case backed by repo and sessions. sessions
+// is used to revoke refresh sessions after password and account security
+// changes.
+func NewUserUseCase(repo repository.UserRepository, sessions repository.RefreshSessionRepository) UserUseCase {
 	return userUsecase{
-		repo: repo,
-		now:  func() int64 { return time.Now().Unix() },
+		repo:     repo,
+		sessions: sessions,
+		now:      func() int64 { return time.Now().Unix() },
 	}
 }
 
@@ -246,6 +250,7 @@ func (u userUsecase) UpdateProfile(
 }
 
 // UpdateStatus activates or deactivates the active user matching publicID.
+// Deactivating an account revokes its refresh sessions.
 func (u userUsecase) UpdateStatus(
 	ctx context.Context,
 	publicID string,
@@ -254,6 +259,12 @@ func (u userUsecase) UpdateStatus(
 	user, err := u.repo.UpdateStatus(ctx, publicID, isActive, u.now())
 	if err != nil {
 		return entity.User{}, mapRepositoryError(err)
+	}
+
+	if !isActive {
+		if err := u.revokeUserSessions(ctx, user.ID); err != nil {
+			return entity.User{}, err
+		}
 	}
 
 	return user, nil
@@ -296,14 +307,19 @@ func (u userUsecase) ChangePassword(
 		return mapRepositoryError(err)
 	}
 
-	return nil
+	return u.revokeUserSessions(ctx, user.ID)
 }
 
 // ResetPassword sets a new password for the active user matching publicID
-// without verifying the current one.
+// without verifying the current one, then revokes that user's refresh sessions.
 func (u userUsecase) ResetPassword(ctx context.Context, publicID string, newPassword string) error {
 	if err := validatePassword(newPassword); err != nil {
 		return err
+	}
+
+	user, err := u.repo.FindUserByPublicID(ctx, publicID)
+	if err != nil {
+		return mapRepositoryError(err)
 	}
 
 	passwordHash, err := hashPassword(newPassword)
@@ -313,6 +329,16 @@ func (u userUsecase) ResetPassword(ctx context.Context, publicID string, newPass
 
 	if err := u.repo.UpdatePassword(ctx, publicID, passwordHash, u.now()); err != nil {
 		return mapRepositoryError(err)
+	}
+
+	return u.revokeUserSessions(ctx, user.ID)
+}
+
+// revokeUserSessions revokes every active refresh session for userID. It wraps
+// the repository error so callers do not expose session internals.
+func (u userUsecase) revokeUserSessions(ctx context.Context, userID int) error {
+	if err := u.sessions.RevokeUserRefreshSessions(ctx, userID, u.now()); err != nil {
+		return fmt.Errorf("revoke user refresh sessions: %w", err)
 	}
 
 	return nil

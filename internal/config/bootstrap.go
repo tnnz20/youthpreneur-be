@@ -43,10 +43,10 @@ func Bootstrap(ctx context.Context, cfg Config, logger *slog.Logger) (http.Handl
 	healthHandler := handler.NewHealthHandler(logger, healthUsecase)
 
 	userRepo := persistence.NewUserRepository(db)
-	userUsecase := usecase.NewUserUseCase(userRepo)
+	sessionRepo := persistence.NewRefreshSessionRepository(db)
+	userUsecase := usecase.NewUserUseCase(userRepo, sessionRepo)
 	userHandler := handler.NewUserHandler(logger, userUsecase)
 
-	sessionRepo := persistence.NewRefreshSessionRepository(db)
 	tokenService := token.NewService(cfg.Auth.Secret, cfg.Auth.AccessTokenTTL)
 	authUsecase := usecase.NewAuthUseCase(
 		userRepo,
@@ -73,7 +73,9 @@ func Bootstrap(ctx context.Context, cfg Config, logger *slog.Logger) (http.Handl
 
 	generalLimit := middleware.NewRateLimiter(cfg.RateLimit.GeneralPerMinute, rateLimitWindow).Middleware
 
-	return middleware.CORS(cfg.CORS.AllowedOrigins)(generalLimit(mux)), db, nil
+	// Rate limiting wraps CORS so disallowed-origin requests are also counted
+	// and limited. CORS policy itself is unchanged.
+	return generalLimit(middleware.CORS(cfg.CORS.AllowedOrigins)(mux)), db, nil
 }
 
 func openPostgres(ctx context.Context, cfg PostgresConfig) (*sql.DB, error) {

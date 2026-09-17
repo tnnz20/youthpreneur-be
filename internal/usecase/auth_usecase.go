@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -61,7 +62,8 @@ type AuthUseCase interface {
 	Login(ctx context.Context, input LoginInput) (LoginResult, error)
 	// Refresh validates and rotates the presented refresh token. It returns
 	// ErrInvalidRefreshToken when the token is unknown, revoked, replayed, or
-	// expired, or when its user is gone or inactive.
+	// expired, or when its user is gone or inactive. Replaying a revoked token
+	// revokes every refresh session for its user before failing.
 	Refresh(ctx context.Context, refreshToken string) (AuthTokens, error)
 	// Logout revokes the presented refresh token. An empty token is a no-op.
 	Logout(ctx context.Context, refreshToken string) error
@@ -110,10 +112,10 @@ func (u authUsecase) Login(ctx context.Context, input LoginInput) (LoginResult, 
 	if err != nil {
 		return LoginResult{}, fmt.Errorf("find user by email: %w", err)
 	}
-	if !user.IsActive {
-		return LoginResult{}, ErrInvalidCredentials
-	}
-	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(input.Password)); err != nil {
+	// Verify the password before checking IsActive so unknown emails, wrong
+	// passwords, and inactive accounts spend the same bcrypt work and cannot be
+	// distinguished by timing.
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(input.Password)); err != nil || !user.IsActive {
 		return LoginResult{}, ErrInvalidCredentials
 	}
 
@@ -134,6 +136,12 @@ func (u authUsecase) Refresh(ctx context.Context, refreshToken string) (AuthToke
 	oldHash := u.tokens.HashRefresh(refreshToken)
 	now := u.now()
 
+	// Opportunistic cleanup keeps the table bounded without a scheduled job.
+	// A cleanup failure must not block an otherwise valid refresh.
+	if err := u.sessions.DeleteExpiredRefreshSessions(ctx, now.Unix()); err != nil {
+		slog.DebugContext(ctx, "delete refresh sessions cleanup failed", "error", err)
+	}
+
 	session, err := u.sessions.FindRefreshSession(ctx, oldHash)
 	if errors.Is(err, repository.ErrRefreshSessionNotFound) {
 		return AuthTokens{}, ErrInvalidRefreshToken
@@ -141,7 +149,16 @@ func (u authUsecase) Refresh(ctx context.Context, refreshToken string) (AuthToke
 	if err != nil {
 		return AuthTokens{}, fmt.Errorf("find refresh session: %w", err)
 	}
-	if session.RevokedAt != nil || session.ExpiresAt <= now.Unix() {
+	if session.RevokedAt != nil {
+		// Reusing a rotated token means the token family may be compromised.
+		// Revoke every session for the user before failing, without revealing
+		// to the caller whether the token was revoked.
+		if err := u.sessions.RevokeUserRefreshSessions(ctx, session.UserID, now.Unix()); err != nil {
+			slog.DebugContext(ctx, "revoke refresh session family failed", "error", err)
+		}
+		return AuthTokens{}, ErrInvalidRefreshToken
+	}
+	if session.ExpiresAt <= now.Unix() {
 		return AuthTokens{}, ErrInvalidRefreshToken
 	}
 
@@ -208,6 +225,11 @@ func (u authUsecase) Logout(ctx context.Context, refreshToken string) error {
 
 func (u authUsecase) issueTokens(ctx context.Context, user entity.User) (AuthTokens, error) {
 	now := u.now()
+
+	// Opportunistic cleanup; a failure must not block login.
+	if err := u.sessions.DeleteExpiredRefreshSessions(ctx, now.Unix()); err != nil {
+		slog.DebugContext(ctx, "delete refresh sessions cleanup failed", "error", err)
+	}
 
 	access, err := u.tokens.IssueAccess(user, now)
 	if err != nil {

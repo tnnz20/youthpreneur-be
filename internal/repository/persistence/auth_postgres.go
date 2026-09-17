@@ -152,6 +152,18 @@ func (r refreshSessionRepository) RevokeUserRefreshSessions(
 	return nil
 }
 
+func (r refreshSessionRepository) DeleteExpiredRefreshSessions(ctx context.Context, now int64) error {
+	if _, err := r.db.ExecContext(ctx, `
+		DELETE FROM refresh_sessions
+		WHERE expires_at <= $1 OR revoked_at IS NOT NULL`,
+		now,
+	); err != nil {
+		return fmt.Errorf("delete expired refresh sessions: %w", err)
+	}
+
+	return nil
+}
+
 // scanRefreshSession maps one refresh_sessions row. scan is sql.Row.Scan or
 // sql.Rows.Scan.
 func scanRefreshSession(scan func(dest ...any) error) (entity.RefreshSession, error) {

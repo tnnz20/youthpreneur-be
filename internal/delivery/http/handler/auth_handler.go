@@ -57,7 +57,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie(RefreshTokenCookie)
 	if err != nil {
-		writeError(h.logger, w, http.StatusUnauthorized, "invalid refresh token")
+		WriteError(h.logger, w, http.StatusUnauthorized, "invalid refresh token")
 		return
 	}
 
@@ -136,14 +136,14 @@ func (h *AuthHandler) writeUsecaseError(w http.ResponseWriter, err error) {
 		if errors.As(err, &badRequest) && badRequest.Message != "" {
 			message = badRequest.Message
 		}
-		writeError(h.logger, w, http.StatusBadRequest, message)
+		WriteError(h.logger, w, http.StatusBadRequest, message)
 	case errors.Is(err, usecase.ErrInvalidCredentials):
-		writeError(h.logger, w, http.StatusUnauthorized, "invalid credentials")
+		WriteError(h.logger, w, http.StatusUnauthorized, "invalid credentials")
 	case errors.Is(err, usecase.ErrInvalidRefreshToken):
-		writeError(h.logger, w, http.StatusUnauthorized, "invalid refresh token")
+		WriteError(h.logger, w, http.StatusUnauthorized, "invalid refresh token")
 	default:
 		h.logger.Error("auth request failed", "error", err)
-		writeError(h.logger, w, http.StatusInternalServerError, "internal server error")
+		WriteError(h.logger, w, http.StatusInternalServerError, "internal server error")
 	}
 }
 
