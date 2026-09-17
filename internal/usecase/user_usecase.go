@@ -75,10 +75,7 @@ var emailPattern = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 type CreateUserInput struct {
 	Email    string
 	Password string
-	// Role is accepted for wire compatibility but intentionally ignored.
-	// Registration always creates a member; see CreateUser.
-	Role    string
-	Profile entity.Profile
+	Profile  entity.Profile
 }
 
 // ChangePasswordInput carries the current and replacement passwords.

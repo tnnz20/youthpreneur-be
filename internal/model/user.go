@@ -4,7 +4,6 @@ package model
 type CreateUserRequest struct {
 	Email     string `json:"email"`
 	Password  string `json:"password"`
-	Role      string `json:"role"`
 	FullName  string `json:"full_name"`
 	NIK       string `json:"nik"`
 	BirthDate string `json:"birth_date"`

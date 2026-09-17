@@ -46,7 +46,6 @@ func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 	user, err := h.useCase.CreateUser(r.Context(), usecase.CreateUserInput{
 		Email:    request.Email,
 		Password: request.Password,
-		Role:     request.Role,
 		Profile: entity.Profile{
 			FullName:  request.FullName,
 			NIK:       request.NIK,

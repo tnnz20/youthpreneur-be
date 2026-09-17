@@ -198,14 +198,11 @@ func TestCreateUserGeneratesPublicIDHashesPasswordAndNormalizesInput(t *testing.
 	}
 }
 
-func TestCreateUserIgnoresRequestedRole(t *testing.T) {
+func TestCreateUserDefaultsToMemberRole(t *testing.T) {
 	repo := &fakeUserRepository{}
 	uc := usecase.NewUserUseCase(repo)
 
-	input := validCreateInput()
-	input.Role = string(entity.RoleAdmin)
-
-	user, err := uc.CreateUser(context.Background(), input)
+	user, err := uc.CreateUser(context.Background(), validCreateInput())
 	if err != nil {
 		t.Fatalf("CreateUser() error = %v", err)
 	}
