@@ -104,106 +104,8 @@ go run ./cmd/migrate version
 `up` and `down` are safe to repeat. A run with nothing to apply reports that no
 change occurred. `force` recovers a database left dirty by a failed migration.
 
-Schema notes:
-
-- `users` and `user_profiles` use `SERIAL` integer primary keys.
-- `users.email` and `users.public_id` are unique. The bcrypt hash is stored in
-  `users.password` and is never returned by the API.
-- `created_at`, `updated_at`, and `deleted_at` are Unix epoch seconds stored as
-  `BIGINT`. `deleted_at` is `NULL` until a soft delete.
-- User deletes are soft deletes; deleted users are excluded from reads.
-- `user_role` is an enum of `admin` or `member`. `user_profiles.gender` is
-  `VARCHAR(50)`.
-- Public IDs are six random decimal digits (`YTP-DDDDDD`), a 10^6 space. They
-  are lookup handles, not authentication credentials, and must not be treated as
-  secret. After a bounded number of collisions the create request fails rather
-  than looping; widen the format (8+ digits or alphanumeric) before the user
-  count approaches that ceiling.
-- New users are always created with the `member` role. Any `role` sent to
-  `POST /users` is ignored. Admin provisioning needs a trusted, authenticated
-  path, which this PR does not add.
-- Adding a future role is a two-part change: add the value to the `user_role`
-  enum with a new migration, and update application-side role handling for any
-  trusted provisioning path.
-- `user_profiles` holds `full_name`, `nik`, `birth_date` (`DATE`), `gender`,
-  `district`, `phone` (`VARCHAR(32)`), and `address` (`TEXT`). `birth_date` is
-  exchanged as `YYYY-MM-DD` (ISO 8601).
-- Deleting a user soft deletes both `users` and its `user_profiles` row in one
-  transaction, using the same Unix timestamp for `deleted_at` and `updated_at`.
-
-## User API
-
-See [`api-contract.md`](api-contract.md) for the request and response formats.
-
-No authentication or middleware is wired yet. See the limitation below before
-exposing these routes.
-
-| Method | Path | Description |
-| --- | --- | --- |
-| `POST` | `/users` | Create a user and profile |
-| `GET` | `/users` | List users with cursor pagination |
-| `GET` | `/users/{publicID}` | Get one user with profile |
-| `DELETE` | `/users/{publicID}` | Soft delete a user |
-| `PUT` | `/users/{publicID}/profile` | Replace profile fields |
-| `PATCH` | `/users/{publicID}/status` | Set the active flag |
-| `PUT` | `/users/{publicID}/password` | Change a password using the current one |
-| `POST` | `/users/{publicID}/password/reset` | Set a password without the current one |
-
-Public IDs use the form `YTP-` plus six random digits, for example
-`YTP-482910`. Passwords are hashed with bcrypt and never returned in responses.
-Request bodies are capped at 1 MiB. Passwords must be 8 to 72 bytes; the upper
-bound matches bcrypt's input limit so long passwords are rejected instead of
-being silently truncated. `birth_date` must be a valid ISO 8601 date that is not
-in the future.
-
-### Cursor pagination
-
-`GET /users` is ordered by `users.id` ascending and never uses offset
-pagination.
-
-| Query parameter | Description |
-| --- | --- |
-| `cursor` | Return users with `id` greater than this value |
-| `limit` | Page size, clamped to 1-100; default 20 |
-| `district` | Optional exact profile district filter |
-| `gender` | Optional `male` or `female` filter |
-
-The response includes `next_cursor` when another page exists. Pass it back as
-`cursor` to fetch the next page. The field is omitted on the last page.
-
-```bash
-curl "http://localhost:8080/users?limit=2&district=Bandung"
-```
-
-```json
-{
-  "users": [
-    {
-      "public_id": "YTP-482910",
-      "email": "alice@example.com",
-      "role": "member",
-      "is_active": true,
-      "created_at": 1700000000,
-      "updated_at": 1700000000,
-      "profile": {
-        "full_name": "Alice",
-        "district": "Bandung",
-        "phone": "08123456789",
-        "address": "Jalan Mawar 1"
-      }
-    }
-  ],
-  "next_cursor": "42"
-}
-```
-
-### Development limitation
-
-There is no authentication or authorization yet. In particular,
-`POST /users/{publicID}/password/reset` resets a password without the current
-password. This endpoint is unsafe until authentication middleware is added;
-then restrict it to authenticated admins only. Do not expose it outside a
-trusted development network before that.
+See [api/api-contract.md](api/api-contract.md) for database-backed API behavior,
+request fields, responses, pagination, and safety limitations.
 
 ## Project Layout
 
@@ -218,7 +120,7 @@ internal/model/                  HTTP request and response models
 internal/repository/             repository interfaces
 internal/repository/persistence/ PostgreSQL repository implementations
 internal/usecase/                application use cases
-api-contract.md                  HTTP API contract
+api/api-contract.md              HTTP API contract
 compose.yaml                     local PostgreSQL container
 Dockerfile                       API container build
 Makefile                         development commands
