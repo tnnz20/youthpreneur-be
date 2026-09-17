@@ -335,6 +335,32 @@ func TestUpdateTrainingCatalogAppliesValidatedFields(t *testing.T) {
 	}
 }
 
+func TestUpdateTrainingCatalogRejectsEmptyUpdate(t *testing.T) {
+	repo := &fakeTrainingCatalogRepository{}
+	uc := usecase.NewTrainingCatalogUseCase(repo)
+
+	_, err := uc.UpdateTrainingCatalog(context.Background(), adminActor(), "YTP-000004", usecase.UpdateTrainingCatalogInput{})
+	if !errors.Is(err, usecase.ErrBadRequest) {
+		t.Fatalf("UpdateTrainingCatalog() error = %v, want ErrBadRequest", err)
+	}
+	if repo.lastUpdatePublicID != "" {
+		t.Errorf("repository updated %q for an empty patch, want no call", repo.lastUpdatePublicID)
+	}
+}
+
+func TestUpdateTrainingCatalogAllowsExplicitClear(t *testing.T) {
+	repo := &fakeTrainingCatalogRepository{updateResult: entity.TrainingCatalog{ID: 4, PublicID: "YTP-000004"}}
+	uc := usecase.NewTrainingCatalogUseCase(repo)
+
+	description := ""
+	if _, err := uc.UpdateTrainingCatalog(context.Background(), adminActor(), "YTP-000004", usecase.UpdateTrainingCatalogInput{Description: &description}); err != nil {
+		t.Fatalf("UpdateTrainingCatalog() error = %v", err)
+	}
+	if repo.lastUpdate.Description == nil || *repo.lastUpdate.Description != "" {
+		t.Errorf("description = %v, want explicit empty clear", repo.lastUpdate.Description)
+	}
+}
+
 func TestUpdateTrainingCatalogStatusValidatesInput(t *testing.T) {
 	repo := &fakeTrainingCatalogRepository{}
 	uc := usecase.NewTrainingCatalogUseCase(repo)

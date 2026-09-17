@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -64,6 +65,63 @@ func TestApplyTrainingCatalogUpdateMergesOptionalFields(t *testing.T) {
 	}
 	if merged.PublicID != "YTP-000003" {
 		t.Errorf("public id = %q, want untouched", merged.PublicID)
+	}
+}
+
+// TestTrainingCatalogScanSharedAcrossJoinedEnrollment locks the catalog column
+// mapping so joined enrollment reads and direct catalog reads cannot drift.
+func TestTrainingCatalogScanSharedAcrossJoinedEnrollment(t *testing.T) {
+	trainingDay := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	fillCatalog := func(dest []any) {
+		*(dest[0].(*int)) = 3
+		*(dest[1].(*string)) = "YTP-000003"
+		*(dest[2].(*sql.NullString)) = sql.NullString{String: "Kelas", Valid: true}
+		*(dest[3].(*sql.NullString)) = sql.NullString{String: "Deskripsi", Valid: true}
+		*(dest[4].(*sql.NullString)) = sql.NullString{String: "0812", Valid: true}
+		*(dest[5].(*sql.NullString)) = sql.NullString{String: "Pemasaran", Valid: true}
+		*(dest[6].(*sql.NullInt64)) = sql.NullInt64{Int64: 20, Valid: true}
+		*(dest[7].(*sql.NullString)) = sql.NullString{String: "planned", Valid: true}
+		*(dest[8].(*sql.NullString)) = sql.NullString{String: "https://example.com", Valid: true}
+		*(dest[9].(*sql.NullTime)) = sql.NullTime{Time: trainingDay, Valid: true}
+		*(dest[10].(*sql.NullString)) = sql.NullString{String: "09:00-12:00", Valid: true}
+		*(dest[11].(*sql.NullString)) = sql.NullString{String: "Budi", Valid: true}
+		*(dest[12].(*int64)) = 100
+		*(dest[13].(*int64)) = 200
+		*(dest[14].(*sql.NullInt64)) = sql.NullInt64{Int64: 300, Valid: true}
+	}
+
+	direct, err := scanTrainingCatalog(func(dest ...any) error {
+		fillCatalog(dest)
+
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("scanTrainingCatalog() error = %v", err)
+	}
+
+	joined, err := scanTrainingEnrollmentJoined(func(dest ...any) error {
+		*(dest[0].(*int)) = 7
+		*(dest[1].(*string)) = "YTP-000007"
+		*(dest[2].(*int)) = 9
+		*(dest[3].(*string)) = "YTP-000009"
+		*(dest[4].(*int)) = 3
+		*(dest[5].(*sql.NullTime)) = sql.NullTime{Time: trainingDay, Valid: true}
+		*(dest[6].(*int64)) = 400
+		*(dest[7].(*int64)) = 400
+		*(dest[8].(*sql.NullInt64)) = sql.NullInt64{}
+		fillCatalog(dest[9:])
+
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("scanTrainingEnrollmentJoined() error = %v", err)
+	}
+
+	if joined.Catalog == nil {
+		t.Fatal("joined catalog = nil, want shared row mapping")
+	}
+	if !reflect.DeepEqual(direct, *joined.Catalog) {
+		t.Errorf("joined catalog = %+v, want same mapping as direct %+v", *joined.Catalog, direct)
 	}
 }
 

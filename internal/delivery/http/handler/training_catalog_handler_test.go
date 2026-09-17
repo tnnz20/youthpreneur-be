@@ -246,6 +246,60 @@ func TestDeleteTrainingCatalogReturnsNoContent(t *testing.T) {
 	}
 }
 
+type stubTrainingCatalogRepository struct {
+	updateCalls int
+}
+
+func (s *stubTrainingCatalogRepository) CreateTrainingCatalog(
+	context.Context,
+	entity.TrainingCatalog,
+) (entity.TrainingCatalog, error) {
+	return entity.TrainingCatalog{}, nil
+}
+
+func (s *stubTrainingCatalogRepository) FindTrainingCatalogByPublicID(
+	context.Context,
+	string,
+) (entity.TrainingCatalog, error) {
+	return entity.TrainingCatalog{}, repository.ErrTrainingCatalogNotFound
+}
+
+func (s *stubTrainingCatalogRepository) FindTrainingCatalogs(
+	context.Context,
+	entity.TrainingCatalogFilter,
+) ([]entity.TrainingCatalog, error) {
+	return nil, nil
+}
+
+func (s *stubTrainingCatalogRepository) UpdateTrainingCatalog(
+	context.Context,
+	string,
+	entity.TrainingCatalogUpdate,
+) (entity.TrainingCatalog, error) {
+	s.updateCalls++
+
+	return entity.TrainingCatalog{}, nil
+}
+
+func (s *stubTrainingCatalogRepository) SoftDeleteTrainingCatalog(context.Context, string, int64) error {
+	return nil
+}
+
+func TestUpdateTrainingCatalogEmptyPatchReturnsBadRequest(t *testing.T) {
+	repo := &stubTrainingCatalogRepository{}
+	uc := usecase.NewTrainingCatalogUseCase(repo)
+
+	rec := serve(t, newTrainingCatalogRouter(uc, enterpriseIdentity(entity.User{ID: 9, Role: entity.RoleAdmin})),
+		http.MethodPatch, "/training-catalog/YTP-000007", `{}`)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d (body %s)", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	if repo.updateCalls != 0 {
+		t.Errorf("update calls = %d, want 0 for an empty patch", repo.updateCalls)
+	}
+}
+
 // TestTrainingCatalogRoutePolicy confirms public reads need no cookie while
 // catalog writes require the current admin role.
 func TestTrainingCatalogRoutePolicy(t *testing.T) {

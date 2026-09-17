@@ -267,60 +267,74 @@ func applyTrainingCatalogUpdate(
 	return merged
 }
 
+// trainingCatalogRow holds the nullable scan targets for trainingCatalogColumns.
+// Direct catalog reads and joined enrollment reads both use it so the
+// column-to-field mapping lives in one place.
+type trainingCatalogRow struct {
+	catalog                               entity.TrainingCatalog
+	name, description, picPhone, category sql.NullString
+	trainingSlots                         sql.NullInt64
+	trainingStatus, link                  sql.NullString
+	trainingDate                          sql.NullTime
+	trainingPeriod, speaker               sql.NullString
+	deletedAt                             sql.NullInt64
+}
+
+// scanDest returns the scan destinations for trainingCatalogColumns in order.
+func (row *trainingCatalogRow) scanDest() []any {
+	return []any{
+		&row.catalog.ID,
+		&row.catalog.PublicID,
+		&row.name,
+		&row.description,
+		&row.picPhone,
+		&row.category,
+		&row.trainingSlots,
+		&row.trainingStatus,
+		&row.link,
+		&row.trainingDate,
+		&row.trainingPeriod,
+		&row.speaker,
+		&row.catalog.CreatedAt,
+		&row.catalog.UpdatedAt,
+		&row.deletedAt,
+	}
+}
+
+// toCatalog converts the gathered nullable values into the catalog entity.
+func (row *trainingCatalogRow) toCatalog() entity.TrainingCatalog {
+	catalog := row.catalog
+	catalog.Name = row.name.String
+	catalog.Description = row.description.String
+	catalog.PicPhone = row.picPhone.String
+	catalog.Category = row.category.String
+	if row.trainingSlots.Valid {
+		slots := int(row.trainingSlots.Int64)
+		catalog.TrainingSlots = &slots
+	}
+	catalog.TrainingStatus = entity.ProcessStatus(row.trainingStatus.String)
+	catalog.Link = row.link.String
+	if row.trainingDate.Valid {
+		catalog.TrainingDate = &row.trainingDate.Time
+	}
+	catalog.TrainingPeriod = row.trainingPeriod.String
+	catalog.Speaker = row.speaker.String
+	if row.deletedAt.Valid {
+		catalog.DeletedAt = &row.deletedAt.Int64
+	}
+
+	return catalog
+}
+
 // scanTrainingCatalog maps one catalog row. scan is sql.Row.Scan or
 // sql.Rows.Scan.
 func scanTrainingCatalog(scan func(dest ...any) error) (entity.TrainingCatalog, error) {
-	var (
-		catalog                               entity.TrainingCatalog
-		name, description, picPhone, category sql.NullString
-		trainingSlots                         sql.NullInt64
-		trainingStatus, link                  sql.NullString
-		trainingDate                          sql.NullTime
-		trainingPeriod, speaker               sql.NullString
-		deletedAt                             sql.NullInt64
-	)
-
-	err := scan(
-		&catalog.ID,
-		&catalog.PublicID,
-		&name,
-		&description,
-		&picPhone,
-		&category,
-		&trainingSlots,
-		&trainingStatus,
-		&link,
-		&trainingDate,
-		&trainingPeriod,
-		&speaker,
-		&catalog.CreatedAt,
-		&catalog.UpdatedAt,
-		&deletedAt,
-	)
-	if err != nil {
+	var row trainingCatalogRow
+	if err := scan(row.scanDest()...); err != nil {
 		return entity.TrainingCatalog{}, err
 	}
 
-	catalog.Name = name.String
-	catalog.Description = description.String
-	catalog.PicPhone = picPhone.String
-	catalog.Category = category.String
-	if trainingSlots.Valid {
-		slots := int(trainingSlots.Int64)
-		catalog.TrainingSlots = &slots
-	}
-	catalog.TrainingStatus = entity.ProcessStatus(trainingStatus.String)
-	catalog.Link = link.String
-	if trainingDate.Valid {
-		catalog.TrainingDate = &trainingDate.Time
-	}
-	catalog.TrainingPeriod = trainingPeriod.String
-	catalog.Speaker = speaker.String
-	if deletedAt.Valid {
-		catalog.DeletedAt = &deletedAt.Int64
-	}
-
-	return catalog, nil
+	return row.toCatalog(), nil
 }
 
 // mapTrainingCatalogInsertError translates a unique public id violation into a

@@ -197,27 +197,17 @@ func (r trainingEnrollmentRepository) FindTrainingEnrollments(
 }
 
 // scanTrainingEnrollmentJoined maps one enrollment row joined with its catalog
-// and enrolling user.
+// and enrolling user. Catalog columns reuse trainingCatalogRow so the mapping
+// cannot drift from direct catalog reads.
 func scanTrainingEnrollmentJoined(scan func(dest ...any) error) (entity.TrainingEnrollment, error) {
 	var (
 		enrollment  entity.TrainingEnrollment
 		registerDay sql.NullTime
 		deletedAt   sql.NullInt64
-		catalog     entity.TrainingCatalog
-		name        sql.NullString
-		description sql.NullString
-		picPhone    sql.NullString
-		category    sql.NullString
-		slots       sql.NullInt64
-		status      sql.NullString
-		link        sql.NullString
-		trainingDay sql.NullTime
-		period      sql.NullString
-		speaker     sql.NullString
-		catDeleted  sql.NullInt64
+		catalogRow  trainingCatalogRow
 	)
 
-	err := scan(
+	dest := []any{
 		&enrollment.ID,
 		&enrollment.PublicID,
 		&enrollment.UserID,
@@ -227,23 +217,10 @@ func scanTrainingEnrollmentJoined(scan func(dest ...any) error) (entity.Training
 		&enrollment.CreatedAt,
 		&enrollment.UpdatedAt,
 		&deletedAt,
-		&catalog.ID,
-		&catalog.PublicID,
-		&name,
-		&description,
-		&picPhone,
-		&category,
-		&slots,
-		&status,
-		&link,
-		&trainingDay,
-		&period,
-		&speaker,
-		&catalog.CreatedAt,
-		&catalog.UpdatedAt,
-		&catDeleted,
-	)
-	if err != nil {
+	}
+	dest = append(dest, catalogRow.scanDest()...)
+
+	if err := scan(dest...); err != nil {
 		return entity.TrainingEnrollment{}, err
 	}
 
@@ -253,25 +230,7 @@ func scanTrainingEnrollmentJoined(scan func(dest ...any) error) (entity.Training
 	if deletedAt.Valid {
 		enrollment.DeletedAt = &deletedAt.Int64
 	}
-
-	catalog.Name = name.String
-	catalog.Description = description.String
-	catalog.PicPhone = picPhone.String
-	catalog.Category = category.String
-	if slots.Valid {
-		value := int(slots.Int64)
-		catalog.TrainingSlots = &value
-	}
-	catalog.TrainingStatus = entity.ProcessStatus(status.String)
-	catalog.Link = link.String
-	if trainingDay.Valid {
-		catalog.TrainingDate = &trainingDay.Time
-	}
-	catalog.TrainingPeriod = period.String
-	catalog.Speaker = speaker.String
-	if catDeleted.Valid {
-		catalog.DeletedAt = &catDeleted.Int64
-	}
+	catalog := catalogRow.toCatalog()
 	enrollment.Catalog = &catalog
 
 	return enrollment, nil

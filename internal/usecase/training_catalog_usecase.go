@@ -211,6 +211,9 @@ func (u trainingCatalogUsecase) UpdateTrainingCatalog(
 	if err != nil {
 		return entity.TrainingCatalog{}, err
 	}
+	if isEmptyTrainingCatalogUpdate(update) {
+		return entity.TrainingCatalog{}, badRequest("no update fields supplied")
+	}
 	update.UpdatedAt = u.now()
 
 	result, err := u.repo.UpdateTrainingCatalog(ctx, publicID, update)
@@ -391,6 +394,21 @@ func buildTrainingCatalogUpdate(input UpdateTrainingCatalogInput) (entity.Traini
 	}
 
 	return update, nil
+}
+
+// isEmptyTrainingCatalogUpdate reports whether no update field was supplied.
+// UpdatedAt is excluded because the usecase sets it after this check.
+func isEmptyTrainingCatalogUpdate(update entity.TrainingCatalogUpdate) bool {
+	return update.Name == nil &&
+		update.Description == nil &&
+		update.PicPhone == nil &&
+		update.Category == nil &&
+		update.TrainingSlots == nil &&
+		update.TrainingStatus == nil &&
+		update.Link == nil &&
+		update.TrainingDate == nil &&
+		update.TrainingPeriod == nil &&
+		update.Speaker == nil
 }
 
 // normalizeCatalogText trims a nullable text field and enforces its maximum
