@@ -13,9 +13,10 @@ type Middleware func(http.Handler) http.Handler
 // is treated as pass-through so tests can register routes without cross-cutting
 // concerns.
 type Dependencies struct {
-	HealthHandler *handler.HealthHandler
-	UserHandler   *handler.UserHandler
-	AuthHandler   *handler.AuthHandler
+	HealthHandler     *handler.HealthHandler
+	UserHandler       *handler.UserHandler
+	AuthHandler       *handler.AuthHandler
+	EnterpriseHandler *handler.EnterpriseHandler
 
 	Authenticate     Middleware
 	RequireAdmin     Middleware
@@ -46,6 +47,13 @@ func (rt *Router) Register(mux *http.ServeMux) {
 	rt.register(mux, "POST /auth/logout", []Middleware{rt.deps.Authenticate}, rt.deps.AuthHandler.Logout)
 	rt.register(mux, "PUT /users/{publicID}/profile", []Middleware{rt.deps.Authenticate, rt.deps.RequireSelf}, rt.deps.UserHandler.UpdateProfile)
 	rt.register(mux, "PUT /users/{publicID}/password", []Middleware{rt.deps.Authenticate, rt.deps.RequireSelf}, rt.deps.UserHandler.ChangePassword)
+
+	authenticated := []Middleware{rt.deps.Authenticate}
+	rt.register(mux, "POST /enterprises", authenticated, rt.deps.EnterpriseHandler.Create)
+	rt.register(mux, "GET /enterprises", authenticated, rt.deps.EnterpriseHandler.List)
+	rt.register(mux, "GET /enterprises/{publicID}", authenticated, rt.deps.EnterpriseHandler.Get)
+	rt.register(mux, "PATCH /enterprises/{publicID}", authenticated, rt.deps.EnterpriseHandler.Update)
+	rt.register(mux, "DELETE /enterprises/{publicID}", authenticated, rt.deps.EnterpriseHandler.Delete)
 
 	admin := []Middleware{rt.deps.Authenticate, rt.deps.RequireAdmin}
 	rt.register(mux, "GET /users", admin, rt.deps.UserHandler.List)

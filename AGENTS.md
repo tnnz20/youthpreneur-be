@@ -32,6 +32,12 @@
 - Authorization uses the current database role loaded by `Authenticate`, never the JWT role claim, so demotions take effect on the next request.
 - Rate limiting is fixed-window, in-memory, and keyed by `RemoteAddr`; it requires direct single-process exposure. Add trusted-proxy IP handling and shared storage before proxied or multi-replica deployments.
 - Request JSON bodies are capped at 1 MiB; password length is 8–72 bytes.
+- Enterprises are owned one-to-many by users; `enterprises.user_id` is always the authenticated identity and is never accepted from request body or query.
+- Enterprise reads are owner-scoped for members and unscoped for admins. Owners update only `name`, `business_sector`, `initial_turnover`, and `current_turnover`; admins may also update `district`, `status`, and the assessment fields (`legal_status`, `business_digitization`, `intervention_needs`, `training_status`, `mentoring_status`, `capital_access`, `partnership`).
+- Enterprise list filters are `district`, `status`, `business_sector`, `legal_status`, `business_digitization`, `intervention_needs`, `training_status`, `mentoring_status`, `capital_access`, and `partnership`; name, turnover, IDs, and timestamps are not filterable. Cursor pagination uses internal `enterprises.id` with `limit + 1`.
+- Enterprise create, update, and delete write an `enterprise_audit_events` row in the same transaction. Enterprise deletion is soft.
+- Enterprise update locks the row with `SELECT ... FOR UPDATE`, merges only the requested fields, derives the actual changed fields for the audit event, and returns the mutated row from `UPDATE ... RETURNING` without a post-commit re-read. Create returns its row from `INSERT ... RETURNING`.
+- Enterprise turnovers are `DECIMAL(15,2)` values carried as strings end to end. Migration `000004` adds named `CHECK` constraints (`enterprises_initial_turnover_non_negative`, `enterprises_current_turnover_non_negative`) rejecting negative turnover and values at or above `10000000000000`. Enterprise enums are `business_sector_enum`, `enterprise_status_enum`, `legal_status_enum`, `business_digitization_enum`, `intervention_needs_enum`, `process_status_enum`, and `general_status_enum`; `name` and the assessment enums are nullable.
 
 ## Change Hygiene
 
