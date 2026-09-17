@@ -23,6 +23,11 @@ var ErrInvalidRefreshToken = errors.New("usecase: invalid refresh token")
 // account existence through timing.
 const dummyPasswordHash = "$2a$10$HoGm57z5fZs2p0tAqJiQke7Napdljhb6qmlnIuCq38AVc3CYI27pS"
 
+// comparePassword is the bcrypt comparison used by Login. It is a package
+// variable so tests can observe that password verification happens before the
+// inactive-account check without relying on timing.
+var comparePassword = bcrypt.CompareHashAndPassword
+
 // TokenService issues access tokens and opaque refresh tokens.
 type TokenService interface {
 	// IssueAccess returns a signed access token for user, issued at now.
@@ -106,7 +111,7 @@ func (u authUsecase) Login(ctx context.Context, input LoginInput) (LoginResult, 
 
 	user, err := u.users.FindUserByEmail(ctx, email)
 	if errors.Is(err, repository.ErrUserNotFound) {
-		_ = bcrypt.CompareHashAndPassword([]byte(dummyPasswordHash), []byte(input.Password))
+		_ = comparePassword([]byte(dummyPasswordHash), []byte(input.Password))
 		return LoginResult{}, ErrInvalidCredentials
 	}
 	if err != nil {
@@ -115,7 +120,7 @@ func (u authUsecase) Login(ctx context.Context, input LoginInput) (LoginResult, 
 	// Verify the password before checking IsActive so unknown emails, wrong
 	// passwords, and inactive accounts spend the same bcrypt work and cannot be
 	// distinguished by timing.
-	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(input.Password)); err != nil || !user.IsActive {
+	if err := comparePassword([]byte(user.Password), []byte(input.Password)); err != nil || !user.IsActive {
 		return LoginResult{}, ErrInvalidCredentials
 	}
 

@@ -155,6 +155,19 @@ func TestRefreshSessionRepositoryIntegration(t *testing.T) {
 		t.Fatalf("CreateRefreshSession(expired) error = %v", err)
 	}
 
+	revokedHash := fmt.Sprintf("revoked-%d", suffix)
+	if err := repo.CreateRefreshSession(ctx, entity.RefreshSession{
+		UserID:    user.ID,
+		TokenHash: revokedHash,
+		ExpiresAt: now + 3600,
+		CreatedAt: now + 8,
+	}); err != nil {
+		t.Fatalf("CreateRefreshSession(revoked) error = %v", err)
+	}
+	if err := repo.RevokeRefreshSession(ctx, revokedHash, now+8); err != nil {
+		t.Fatalf("RevokeRefreshSession(revoked) error = %v", err)
+	}
+
 	if err := repo.DeleteExpiredRefreshSessions(ctx, now); err != nil {
 		t.Fatalf("DeleteExpiredRefreshSessions() error = %v", err)
 	}
@@ -163,5 +176,11 @@ func TestRefreshSessionRepositoryIntegration(t *testing.T) {
 	}
 	if _, err := repo.FindRefreshSession(ctx, activeHash); err != nil {
 		t.Errorf("active session find error = %v, want retained", err)
+	}
+	retained, err := repo.FindRefreshSession(ctx, revokedHash)
+	if err != nil {
+		t.Errorf("revoked unexpired session find error = %v, want retained for replay detection", err)
+	} else if retained.RevokedAt == nil {
+		t.Error("revoked unexpired session lost revoked_at during cleanup")
 	}
 }

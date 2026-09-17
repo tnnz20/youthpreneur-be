@@ -155,7 +155,7 @@ func (r refreshSessionRepository) RevokeUserRefreshSessions(
 func (r refreshSessionRepository) DeleteExpiredRefreshSessions(ctx context.Context, now int64) error {
 	if _, err := r.db.ExecContext(ctx, `
 		DELETE FROM refresh_sessions
-		WHERE expires_at <= $1 OR revoked_at IS NOT NULL`,
+		WHERE expires_at <= $1`,
 		now,
 	); err != nil {
 		return fmt.Errorf("delete expired refresh sessions: %w", err)
