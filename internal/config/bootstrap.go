@@ -51,6 +51,14 @@ func Bootstrap(ctx context.Context, cfg Config, logger *slog.Logger) (http.Handl
 	enterpriseUsecase := usecase.NewEnterpriseUseCase(enterpriseRepo)
 	enterpriseHandler := handler.NewEnterpriseHandler(logger, enterpriseUsecase, middleware.IdentityFromContext)
 
+	catalogRepo := persistence.NewTrainingCatalogRepository(db)
+	catalogUsecase := usecase.NewTrainingCatalogUseCase(catalogRepo)
+	catalogHandler := handler.NewTrainingCatalogHandler(logger, catalogUsecase, middleware.IdentityFromContext)
+
+	enrollmentRepo := persistence.NewTrainingEnrollmentRepository(db)
+	enrollmentUsecase := usecase.NewTrainingEnrollmentUseCase(enrollmentRepo, catalogRepo)
+	enrollmentHandler := handler.NewTrainingEnrollmentHandler(logger, enrollmentUsecase, middleware.IdentityFromContext)
+
 	tokenService := token.NewService(cfg.Auth.Secret, cfg.Auth.AccessTokenTTL)
 	authUsecase := usecase.NewAuthUseCase(
 		userRepo,
@@ -65,15 +73,17 @@ func Bootstrap(ctx context.Context, cfg Config, logger *slog.Logger) (http.Handl
 
 	mux := http.NewServeMux()
 	route.NewRouter(route.Dependencies{
-		HealthHandler:     healthHandler,
-		UserHandler:       userHandler,
-		AuthHandler:       authHandler,
-		EnterpriseHandler: enterpriseHandler,
-		Authenticate:      authenticator.Authenticate,
-		RequireAdmin:      authenticator.RequireAdmin,
-		RequireSelf:       authenticator.RequireSelf,
-		LoginRateLimit:    middleware.NewRateLimiter(cfg.RateLimit.LoginPerMinute, rateLimitWindow).Middleware,
-		RefreshRateLimit:  middleware.NewRateLimiter(cfg.RateLimit.RefreshPerMinute, rateLimitWindow).Middleware,
+		HealthHandler:             healthHandler,
+		UserHandler:               userHandler,
+		AuthHandler:               authHandler,
+		EnterpriseHandler:         enterpriseHandler,
+		TrainingCatalogHandler:    catalogHandler,
+		TrainingEnrollmentHandler: enrollmentHandler,
+		Authenticate:              authenticator.Authenticate,
+		RequireAdmin:              authenticator.RequireAdmin,
+		RequireSelf:               authenticator.RequireSelf,
+		LoginRateLimit:            middleware.NewRateLimiter(cfg.RateLimit.LoginPerMinute, rateLimitWindow).Middleware,
+		RefreshRateLimit:          middleware.NewRateLimiter(cfg.RateLimit.RefreshPerMinute, rateLimitWindow).Middleware,
 	}).Register(mux)
 
 	generalLimit := middleware.NewRateLimiter(cfg.RateLimit.GeneralPerMinute, rateLimitWindow).Middleware
