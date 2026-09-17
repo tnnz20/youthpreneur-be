@@ -33,7 +33,7 @@ func Bootstrap(ctx context.Context, cfg Config, logger *slog.Logger) (http.Handl
 		return nil, nil, err
 	}
 
-	db, err := openPostgres(ctx, cfg.Postgres)
+	db, err := OpenPostgres(ctx, cfg.Postgres)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -93,7 +93,9 @@ func Bootstrap(ctx context.Context, cfg Config, logger *slog.Logger) (http.Handl
 	return generalLimit(middleware.CORS(cfg.CORS.AllowedOrigins)(mux)), db, nil
 }
 
-func openPostgres(ctx context.Context, cfg PostgresConfig) (*sql.DB, error) {
+// OpenPostgres opens the pgx database/sql connection and verifies it with a
+// bounded ping. The caller owns the returned database and must close it.
+func OpenPostgres(ctx context.Context, cfg PostgresConfig) (*sql.DB, error) {
 	db, err := sql.Open("pgx", cfg.DSN())
 	if err != nil {
 		return nil, fmt.Errorf("open postgres: %w", err)
