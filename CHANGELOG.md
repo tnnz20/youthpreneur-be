@@ -31,6 +31,18 @@
 - Credentialed CORS middleware and per-client-IP fixed-window rate limiting with
   `429` and `Retry-After`.
 - Auth, CORS, rate-limit, and `APP_ENV`-derived secure cookie configuration.
+- `enterprises` and `enterprise_audit_events` migrations with
+  `business_sector_enum`, `enterprise_status_enum`, `legal_status_enum`,
+  `business_digitization_enum`, `intervention_needs_enum`,
+  `process_status_enum`, and `general_status_enum` types, `DECIMAL(15,2)`
+  turnover columns, nullable `name` and assessment fields, soft delete, and
+  owner/filter/cursor indexes.
+- Enterprise repository, use case, and HTTP handlers for create, list, get,
+  partial update, and soft delete, scoped one-to-many by owner.
+- Enterprise routes under `/enterprises`, authenticated for members and admins
+  with owner-scoped reads for members and unrestricted reads for admins.
+- Transactional enterprise audit events recording the actor, action, and
+  changed fields JSONB for every create, update, and delete.
 
 ### Changed
 

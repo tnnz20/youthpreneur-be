@@ -149,6 +149,17 @@ upgrading.
   an already issued access token; it remains valid for up to its 15-minute
   lifetime. Authorization uses the current database role, so demotions take
   effect on the next request.
+- **Enterprise ownership is one-to-many and server-derived.** Any active member
+  can create many enterprises, but `enterprises.user_id` always comes from the
+  authenticated identity, never from the request. Members list and read only
+  their own enterprises; admins list and read all. Owners may update only
+  `name`, `business_sector`, `initial_turnover`, and `current_turnover`; admins
+  may also update `district`, `status`, and the assessment fields. List filters
+  cover `district`, `status`, `business_sector`, `legal_status`,
+  `business_digitization`, `intervention_needs`, `training_status`,
+  `mentoring_status`, `capital_access`, and `partnership`; name, turnover
+  values, IDs, and timestamps are not filterable. Deletes are soft and every
+  mutation writes an `enterprise_audit_events` row in the same transaction.
 
 ## Migrations
 
