@@ -20,9 +20,9 @@ var (
 
 // EnterpriseRepository persists enterprises and their audit events.
 //
-// Reads exclude soft-deleted enterprises.ownerID scopes a lookup or mutation to
-// one owner; zero means any owner and must only be used for admin scope. Every
-// mutation writes its audit event in the same transaction.
+// Reads exclude soft-deleted enterprises. ownerID scopes a lookup or mutation
+// to one owner; zero means any owner and must only be used for admin scope.
+// Every mutation writes its audit event in the same transaction.
 type EnterpriseRepository interface {
 	// CreateEnterprise inserts the enterprise and its audit event in one
 	// transaction and returns the persisted row.
@@ -33,10 +33,11 @@ type EnterpriseRepository interface {
 	// FindEnterprises returns active enterprises ordered by ascending id,
 	// filtered by filter.
 	FindEnterprises(ctx context.Context, filter entity.EnterpriseFilter) ([]entity.Enterprise, error)
-	// UpdateEnterprise replaces the mutable fields of the active enterprise
-	// matching publicID within ownerID scope and writes its audit event in the
-	// same transaction.
-	UpdateEnterprise(ctx context.Context, publicID string, ownerID int, enterprise entity.Enterprise, event entity.EnterpriseAuditEvent) (entity.Enterprise, error)
+	// UpdateEnterprise locks the active enterprise matching publicID within
+	// ownerID scope, applies the optional update, and writes its audit event
+	// with the actual changed fields in the same transaction. It returns the
+	// committed row without a post-commit re-read.
+	UpdateEnterprise(ctx context.Context, publicID string, ownerID int, update entity.EnterpriseUpdate, event entity.EnterpriseAuditEvent) (entity.Enterprise, error)
 	// SoftDeleteEnterprise sets deleted_at for the active enterprise matching
 	// publicID within ownerID scope and writes its audit event in the same
 	// transaction.

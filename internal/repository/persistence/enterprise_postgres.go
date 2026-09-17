@@ -64,9 +64,8 @@ func (r enterpriseRepository) CreateEnterprise(
 	// Rollback after a successful commit reports ErrTxDone, which is expected.
 	defer func() { _ = tx.Rollback() }()
 
-	var id int
-	err = tx.QueryRowContext(ctx, `
-		INSERT INTO enterprises (
+	created, err := scanEnterprise(tx.QueryRowContext(ctx, `
+		INSERT INTO enterprises AS e (
 			public_id, user_id, name, business_sector, legal_status,
 			business_digitization, intervention_needs, training_status,
 			mentoring_status, capital_access, partnership,
@@ -83,7 +82,7 @@ func (r enterpriseRepository) CreateEnterprise(
 			NULLIF($11, '')::general_status_enum,
 			$12::text::numeric, $13::text::numeric, $14,
 			$15::text::enterprise_status_enum, $16, $17)
-		RETURNING id`,
+		RETURNING `+enterpriseColumns,
 		enterprise.PublicID,
 		enterprise.UserID,
 		nullString(enterprise.Name),
@@ -101,12 +100,12 @@ func (r enterpriseRepository) CreateEnterprise(
 		string(enterprise.Status),
 		enterprise.CreatedAt,
 		enterprise.UpdatedAt,
-	).Scan(&id)
+	).Scan)
 	if err != nil {
 		return entity.Enterprise{}, mapEnterpriseInsertError(err)
 	}
 
-	if err := insertEnterpriseAuditEvent(ctx, tx, id, event); err != nil {
+	if err := insertEnterpriseAuditEvent(ctx, tx, created.ID, event); err != nil {
 		return entity.Enterprise{}, err
 	}
 
@@ -114,7 +113,7 @@ func (r enterpriseRepository) CreateEnterprise(
 		return entity.Enterprise{}, fmt.Errorf("commit transaction: %w", err)
 	}
 
-	return r.FindEnterpriseByPublicID(ctx, enterprise.PublicID, 0)
+	return created, nil
 }
 
 func (r enterpriseRepository) FindEnterpriseByPublicID(
@@ -186,7 +185,7 @@ func (r enterpriseRepository) UpdateEnterprise(
 	ctx context.Context,
 	publicID string,
 	ownerID int,
-	enterprise entity.Enterprise,
+	update entity.EnterpriseUpdate,
 	event entity.EnterpriseAuditEvent,
 ) (entity.Enterprise, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
@@ -195,8 +194,28 @@ func (r enterpriseRepository) UpdateEnterprise(
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	var id int
-	err = tx.QueryRowContext(ctx, `
+	locked, err := scanEnterprise(tx.QueryRowContext(ctx, `
+		SELECT `+enterpriseColumns+`
+		FROM enterprises e
+		WHERE e.public_id = $1 AND e.deleted_at IS NULL
+		  AND ($2::int = 0 OR e.user_id = $2)
+		FOR UPDATE`,
+		publicID,
+		ownerID,
+	).Scan)
+	if errors.Is(err, sql.ErrNoRows) {
+		return entity.Enterprise{}, repository.ErrEnterpriseNotFound
+	}
+	if err != nil {
+		return entity.Enterprise{}, fmt.Errorf("lock enterprise: %w", err)
+	}
+
+	merged, changed := applyEnterpriseUpdate(locked, update)
+	if len(changed) == 0 {
+		return locked, nil
+	}
+
+	updated, err := scanEnterprise(tx.QueryRowContext(ctx, `
 		UPDATE enterprises e
 		SET name = $3,
 		    business_sector = $4::text::business_sector_enum,
@@ -214,24 +233,24 @@ func (r enterpriseRepository) UpdateEnterprise(
 		    updated_at = $16
 		WHERE e.public_id = $1 AND e.deleted_at IS NULL
 		  AND ($2::int = 0 OR e.user_id = $2)
-		RETURNING e.id`,
+		RETURNING `+enterpriseColumns,
 		publicID,
 		ownerID,
-		nullString(enterprise.Name),
-		string(enterprise.BusinessSector),
-		string(enterprise.LegalStatus),
-		string(enterprise.BusinessDigitization),
-		string(enterprise.InterventionNeeds),
-		string(enterprise.TrainingStatus),
-		string(enterprise.MentoringStatus),
-		string(enterprise.CapitalAccess),
-		string(enterprise.Partnership),
-		enterprise.InitialTurnover,
-		enterprise.CurrentTurnover,
-		nullString(enterprise.District),
-		string(enterprise.Status),
-		enterprise.UpdatedAt,
-	).Scan(&id)
+		nullString(merged.Name),
+		string(merged.BusinessSector),
+		string(merged.LegalStatus),
+		string(merged.BusinessDigitization),
+		string(merged.InterventionNeeds),
+		string(merged.TrainingStatus),
+		string(merged.MentoringStatus),
+		string(merged.CapitalAccess),
+		string(merged.Partnership),
+		merged.InitialTurnover,
+		merged.CurrentTurnover,
+		nullString(merged.District),
+		string(merged.Status),
+		merged.UpdatedAt,
+	).Scan)
 	if errors.Is(err, sql.ErrNoRows) {
 		return entity.Enterprise{}, repository.ErrEnterpriseNotFound
 	}
@@ -239,7 +258,8 @@ func (r enterpriseRepository) UpdateEnterprise(
 		return entity.Enterprise{}, fmt.Errorf("update enterprise: %w", err)
 	}
 
-	if err := insertEnterpriseAuditEvent(ctx, tx, id, event); err != nil {
+	event.ChangedFields = changed
+	if err := insertEnterpriseAuditEvent(ctx, tx, updated.ID, event); err != nil {
 		return entity.Enterprise{}, err
 	}
 
@@ -247,7 +267,7 @@ func (r enterpriseRepository) UpdateEnterprise(
 		return entity.Enterprise{}, fmt.Errorf("commit transaction: %w", err)
 	}
 
-	return r.FindEnterpriseByPublicID(ctx, publicID, ownerID)
+	return updated, nil
 }
 
 func (r enterpriseRepository) SoftDeleteEnterprise(
@@ -290,6 +310,95 @@ func (r enterpriseRepository) SoftDeleteEnterprise(
 	}
 
 	return nil
+}
+
+// applyEnterpriseUpdate merges an optional field update into the locked row and
+// reports the fields that actually changed for the audit event.
+func applyEnterpriseUpdate(locked entity.Enterprise, update entity.EnterpriseUpdate) (entity.Enterprise, map[string]any) {
+	merged := locked
+	merged.UpdatedAt = update.UpdatedAt
+	changed := map[string]any{}
+
+	if update.Name != nil {
+		if *update.Name != locked.Name {
+			changed["name"] = entity.NullableAuditValue(*update.Name)
+		}
+		merged.Name = *update.Name
+	}
+	if update.BusinessSector != nil {
+		if *update.BusinessSector != locked.BusinessSector {
+			changed["business_sector"] = string(*update.BusinessSector)
+		}
+		merged.BusinessSector = *update.BusinessSector
+	}
+	if update.LegalStatus != nil {
+		if *update.LegalStatus != locked.LegalStatus {
+			changed["legal_status"] = entity.NullableAuditValue(string(*update.LegalStatus))
+		}
+		merged.LegalStatus = *update.LegalStatus
+	}
+	if update.BusinessDigitization != nil {
+		if *update.BusinessDigitization != locked.BusinessDigitization {
+			changed["business_digitization"] = entity.NullableAuditValue(string(*update.BusinessDigitization))
+		}
+		merged.BusinessDigitization = *update.BusinessDigitization
+	}
+	if update.InterventionNeeds != nil {
+		if *update.InterventionNeeds != locked.InterventionNeeds {
+			changed["intervention_needs"] = entity.NullableAuditValue(string(*update.InterventionNeeds))
+		}
+		merged.InterventionNeeds = *update.InterventionNeeds
+	}
+	if update.TrainingStatus != nil {
+		if *update.TrainingStatus != locked.TrainingStatus {
+			changed["training_status"] = entity.NullableAuditValue(string(*update.TrainingStatus))
+		}
+		merged.TrainingStatus = *update.TrainingStatus
+	}
+	if update.MentoringStatus != nil {
+		if *update.MentoringStatus != locked.MentoringStatus {
+			changed["mentoring_status"] = entity.NullableAuditValue(string(*update.MentoringStatus))
+		}
+		merged.MentoringStatus = *update.MentoringStatus
+	}
+	if update.CapitalAccess != nil {
+		if *update.CapitalAccess != locked.CapitalAccess {
+			changed["capital_access"] = entity.NullableAuditValue(string(*update.CapitalAccess))
+		}
+		merged.CapitalAccess = *update.CapitalAccess
+	}
+	if update.Partnership != nil {
+		if *update.Partnership != locked.Partnership {
+			changed["partnership"] = entity.NullableAuditValue(string(*update.Partnership))
+		}
+		merged.Partnership = *update.Partnership
+	}
+	if update.InitialTurnover != nil {
+		if *update.InitialTurnover != locked.InitialTurnover {
+			changed["initial_turnover"] = *update.InitialTurnover
+		}
+		merged.InitialTurnover = *update.InitialTurnover
+	}
+	if update.CurrentTurnover != nil {
+		if *update.CurrentTurnover != locked.CurrentTurnover {
+			changed["current_turnover"] = *update.CurrentTurnover
+		}
+		merged.CurrentTurnover = *update.CurrentTurnover
+	}
+	if update.District != nil {
+		if *update.District != locked.District {
+			changed["district"] = entity.NullableAuditValue(*update.District)
+		}
+		merged.District = *update.District
+	}
+	if update.Status != nil {
+		if *update.Status != locked.Status {
+			changed["status"] = string(*update.Status)
+		}
+		merged.Status = *update.Status
+	}
+
+	return merged, changed
 }
 
 // insertEnterpriseAuditEvent appends one audit row using the caller's

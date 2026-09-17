@@ -29,7 +29,7 @@ type fakeEnterpriseRepository struct {
 	updateErr       error
 	updateCalls     int
 	updateResult    entity.Enterprise
-	lastUpdate      entity.Enterprise
+	lastUpdate      entity.EnterpriseUpdate
 	lastUpdateOwner int
 	lastUpdateEvent entity.EnterpriseAuditEvent
 
@@ -87,11 +87,11 @@ func (f *fakeEnterpriseRepository) UpdateEnterprise(
 	_ context.Context,
 	_ string,
 	ownerID int,
-	enterprise entity.Enterprise,
+	update entity.EnterpriseUpdate,
 	event entity.EnterpriseAuditEvent,
 ) (entity.Enterprise, error) {
 	f.updateCalls++
-	f.lastUpdate = enterprise
+	f.lastUpdate = update
 	f.lastUpdateOwner = ownerID
 	f.lastUpdateEvent = event
 	if f.updateErr != nil {
@@ -101,7 +101,53 @@ func (f *fakeEnterpriseRepository) UpdateEnterprise(
 		return f.updateResult, nil
 	}
 
-	return enterprise, nil
+	return applyFakeEnterpriseUpdate(f.findResult, update), nil
+}
+
+func applyFakeEnterpriseUpdate(enterprise entity.Enterprise, update entity.EnterpriseUpdate) entity.Enterprise {
+	if update.Name != nil {
+		enterprise.Name = *update.Name
+	}
+	if update.BusinessSector != nil {
+		enterprise.BusinessSector = *update.BusinessSector
+	}
+	if update.LegalStatus != nil {
+		enterprise.LegalStatus = *update.LegalStatus
+	}
+	if update.BusinessDigitization != nil {
+		enterprise.BusinessDigitization = *update.BusinessDigitization
+	}
+	if update.InterventionNeeds != nil {
+		enterprise.InterventionNeeds = *update.InterventionNeeds
+	}
+	if update.TrainingStatus != nil {
+		enterprise.TrainingStatus = *update.TrainingStatus
+	}
+	if update.MentoringStatus != nil {
+		enterprise.MentoringStatus = *update.MentoringStatus
+	}
+	if update.CapitalAccess != nil {
+		enterprise.CapitalAccess = *update.CapitalAccess
+	}
+	if update.Partnership != nil {
+		enterprise.Partnership = *update.Partnership
+	}
+	if update.InitialTurnover != nil {
+		enterprise.InitialTurnover = *update.InitialTurnover
+	}
+	if update.CurrentTurnover != nil {
+		enterprise.CurrentTurnover = *update.CurrentTurnover
+	}
+	if update.District != nil {
+		enterprise.District = *update.District
+	}
+	if update.Status != nil {
+		enterprise.Status = *update.Status
+	}
+
+	enterprise.UpdatedAt = update.UpdatedAt
+
+	return enterprise
 }
 
 func (f *fakeEnterpriseRepository) SoftDeleteEnterprise(
@@ -171,6 +217,53 @@ func TestCreateEnterpriseAssignsOwnerAndNormalizesInput(t *testing.T) {
 	}
 	if repo.lastCreateEvnt.ChangedFields["name"] != "Warung Kopi" {
 		t.Errorf("audit changed fields = %v, want name", repo.lastCreateEvnt.ChangedFields)
+	}
+}
+
+func TestCreateEnterpriseCanonicalizesTurnoverPrecision(t *testing.T) {
+	cases := []struct {
+		input string
+		want  string
+	}{
+		{input: "0.5", want: "0.50"},
+		{input: "0.00", want: "0.00"},
+		{input: "1500", want: "1500.00"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.input, func(t *testing.T) {
+			repo := &fakeEnterpriseRepository{}
+			uc := usecase.NewEnterpriseUseCase(repo)
+
+			created, err := uc.CreateEnterprise(context.Background(), usecase.CreateEnterpriseInput{
+				Actor:           memberActor(),
+				Name:            "Toko",
+				BusinessSector:  "Perdagangan Ritel",
+				InitialTurnover: tc.input,
+			})
+			if err != nil {
+				t.Fatalf("CreateEnterprise() error = %v", err)
+			}
+			if created.InitialTurnover != tc.want {
+				t.Errorf("initial_turnover = %q, want %q", created.InitialTurnover, tc.want)
+			}
+		})
+	}
+}
+
+func TestCreateEnterpriseRejectsZeroActor(t *testing.T) {
+	repo := &fakeEnterpriseRepository{}
+	uc := usecase.NewEnterpriseUseCase(repo)
+
+	_, err := uc.CreateEnterprise(context.Background(), usecase.CreateEnterpriseInput{
+		Name:           "Toko",
+		BusinessSector: "Perdagangan Ritel",
+	})
+	if !errors.Is(err, usecase.ErrForbidden) {
+		t.Fatalf("CreateEnterprise() error = %v, want ErrForbidden", err)
+	}
+	if repo.createCalls != 0 {
+		t.Errorf("create calls = %d, want 0", repo.createCalls)
 	}
 }
 
@@ -440,14 +533,17 @@ func TestUpdateEnterpriseOwnerChangesAllowedFields(t *testing.T) {
 	if updated.InitialTurnover != "10.00" {
 		t.Errorf("initial turnover = %q, want untouched 10.00", updated.InitialTurnover)
 	}
-	if _, ok := repo.lastUpdateEvent.ChangedFields["name"]; !ok {
-		t.Errorf("audit changed fields = %v, want name", repo.lastUpdateEvent.ChangedFields)
+	if repo.lastUpdate.Name == nil || *repo.lastUpdate.Name != "New" {
+		t.Errorf("update patch name = %v, want New", repo.lastUpdate.Name)
 	}
-	if _, ok := repo.lastUpdateEvent.ChangedFields["current_turnover"]; !ok {
-		t.Errorf("audit changed fields = %v, want current_turnover", repo.lastUpdateEvent.ChangedFields)
+	if repo.lastUpdate.CurrentTurnover == nil || *repo.lastUpdate.CurrentTurnover != "30.00" {
+		t.Errorf("update patch current_turnover = %v, want canonical 30.00", repo.lastUpdate.CurrentTurnover)
 	}
-	if _, ok := repo.lastUpdateEvent.ChangedFields["business_sector"]; ok {
-		t.Errorf("audit recorded unchanged business_sector: %v", repo.lastUpdateEvent.ChangedFields)
+	if repo.lastUpdate.InitialTurnover != nil {
+		t.Errorf("update patch initial_turnover = %v, want untouched", repo.lastUpdate.InitialTurnover)
+	}
+	if repo.lastUpdate.BusinessSector != nil {
+		t.Errorf("update patch business_sector = %v, want untouched", repo.lastUpdate.BusinessSector)
 	}
 }
 
@@ -519,7 +615,7 @@ func TestUpdateEnterpriseAdminChangesAnyMutableField(t *testing.T) {
 	}
 }
 
-func TestUpdateEnterpriseNoChangeSkipsWrite(t *testing.T) {
+func TestUpdateEnterpriseForwardsUnchangedValueToRepository(t *testing.T) {
 	repo := &fakeEnterpriseRepository{findResult: entity.Enterprise{
 		ID:              5,
 		PublicID:        "YTP-000005",
@@ -537,8 +633,13 @@ func TestUpdateEnterpriseNoChangeSkipsWrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpdateEnterprise() error = %v", err)
 	}
-	if repo.updateCalls != 0 {
-		t.Errorf("update calls = %d, want 0 for no-op", repo.updateCalls)
+	// The repository owns the locked diff and skips the write when nothing
+	// changed; the usecase only forwards the requested value.
+	if repo.updateCalls != 1 {
+		t.Errorf("update calls = %d, want 1", repo.updateCalls)
+	}
+	if repo.lastUpdate.Name == nil || *repo.lastUpdate.Name != "Old" {
+		t.Errorf("update patch name = %v, want Old", repo.lastUpdate.Name)
 	}
 	if result.Name != "Old" {
 		t.Errorf("name = %q, want Old", result.Name)
@@ -558,7 +659,7 @@ func TestUpdateEnterpriseValidation(t *testing.T) {
 }
 
 func TestUpdateEnterpriseMapsNotFound(t *testing.T) {
-	repo := &fakeEnterpriseRepository{}
+	repo := &fakeEnterpriseRepository{updateErr: repository.ErrEnterpriseNotFound}
 	uc := usecase.NewEnterpriseUseCase(repo)
 
 	_, err := uc.UpdateEnterprise(context.Background(), memberActor(), "YTP-000404", usecase.UpdateEnterpriseInput{})

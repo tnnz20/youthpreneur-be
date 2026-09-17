@@ -139,6 +139,36 @@ type Enterprise struct {
 	DeletedAt            *int64
 }
 
+// EnterpriseUpdate carries normalized optional enterprise field changes. A nil
+// field is left untouched. UpdatedAt is the mutation timestamp recorded on the
+// persisted row.
+type EnterpriseUpdate struct {
+	Name                 *string
+	BusinessSector       *BusinessSector
+	LegalStatus          *LegalStatus
+	BusinessDigitization *BusinessDigitization
+	InterventionNeeds    *InterventionNeeds
+	TrainingStatus       *ProcessStatus
+	MentoringStatus      *ProcessStatus
+	CapitalAccess        *GeneralStatus
+	Partnership          *GeneralStatus
+	InitialTurnover      *string
+	CurrentTurnover      *string
+	District             *string
+	Status               *EnterpriseStatus
+	UpdatedAt            int64
+}
+
+// NullableAuditValue records an empty cleared string as JSON null in audit
+// changed_fields.
+func NullableAuditValue(value string) any {
+	if value == "" {
+		return nil
+	}
+
+	return value
+}
+
 // EnterpriseAuditEvent records one enterprise mutation and the fields it
 // changed. EnterpriseID is filled by the repository for creations.
 type EnterpriseAuditEvent struct {

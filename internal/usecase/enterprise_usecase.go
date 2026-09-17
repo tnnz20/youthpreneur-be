@@ -267,18 +267,18 @@ func (u enterpriseUsecase) CreateEnterprise(
 			ActorUserID: input.Actor.ID,
 			Action:      entity.AuditActionCreate,
 			ChangedFields: map[string]any{
-				"name":                  nullableAuditValue(name),
+				"name":                  entity.NullableAuditValue(name),
 				"business_sector":       string(sector),
-				"legal_status":          nullableAuditValue(string(legalStatus)),
-				"business_digitization": nullableAuditValue(string(businessDigitization)),
-				"intervention_needs":    nullableAuditValue(string(interventionNeeds)),
-				"training_status":       nullableAuditValue(string(trainingStatus)),
-				"mentoring_status":      nullableAuditValue(string(mentoringStatus)),
-				"capital_access":        nullableAuditValue(string(capitalAccess)),
-				"partnership":           nullableAuditValue(string(partnership)),
+				"legal_status":          entity.NullableAuditValue(string(legalStatus)),
+				"business_digitization": entity.NullableAuditValue(string(businessDigitization)),
+				"intervention_needs":    entity.NullableAuditValue(string(interventionNeeds)),
+				"training_status":       entity.NullableAuditValue(string(trainingStatus)),
+				"mentoring_status":      entity.NullableAuditValue(string(mentoringStatus)),
+				"capital_access":        entity.NullableAuditValue(string(capitalAccess)),
+				"partnership":           entity.NullableAuditValue(string(partnership)),
 				"initial_turnover":      initialTurnover,
 				"current_turnover":      currentTurnover,
-				"district":              nullableAuditValue(district),
+				"district":              entity.NullableAuditValue(district),
 				"status":                string(status),
 			},
 			CreatedAt: now,
@@ -395,38 +395,27 @@ func (u enterpriseUsecase) buildFilter(input FindEnterprisesInput) (entity.Enter
 	}, nil
 }
 
-// UpdateEnterprise applies permitted field changes and records the changed
-// fields with its audit event.
+// UpdateEnterprise validates permitted field changes and delegates the locked,
+// transactional mutation to the repository, which derives the actual changed
+// fields and records them with the audit event.
 func (u enterpriseUsecase) UpdateEnterprise(
 	ctx context.Context,
 	actor entity.User,
 	publicID string,
 	input UpdateEnterpriseInput,
 ) (entity.Enterprise, error) {
-	ownerID := scopeOwnerID(actor)
-
-	existing, err := u.repo.FindEnterpriseByPublicID(ctx, publicID, ownerID)
-	if err != nil {
-		return entity.Enterprise{}, mapEnterpriseRepositoryError(err)
-	}
-
 	if actor.Role != entity.RoleAdmin && ownerRestrictedChange(input) {
 		return entity.Enterprise{}, ErrForbidden
 	}
 
-	updated := existing
-	updated.UpdatedAt = u.now()
-	changed := map[string]any{}
+	update := entity.EnterpriseUpdate{UpdatedAt: u.now()}
 
 	if input.Name != nil {
 		name := strings.TrimSpace(*input.Name)
 		if len(name) > maxEnterpriseNameLength {
 			return entity.Enterprise{}, badRequest("name must be at most 255 characters")
 		}
-		if name != existing.Name {
-			changed["name"] = nullableAuditValue(name)
-		}
-		updated.Name = name
+		update.Name = &name
 	}
 
 	if input.BusinessSector != nil {
@@ -434,10 +423,7 @@ func (u enterpriseUsecase) UpdateEnterprise(
 		if err := validateBusinessSector(sector); err != nil {
 			return entity.Enterprise{}, err
 		}
-		if sector != existing.BusinessSector {
-			changed["business_sector"] = string(sector)
-		}
-		updated.BusinessSector = sector
+		update.BusinessSector = &sector
 	}
 
 	if input.LegalStatus != nil {
@@ -445,10 +431,7 @@ func (u enterpriseUsecase) UpdateEnterprise(
 		if err != nil {
 			return entity.Enterprise{}, err
 		}
-		if legalStatus != existing.LegalStatus {
-			changed["legal_status"] = nullableAuditValue(string(legalStatus))
-		}
-		updated.LegalStatus = legalStatus
+		update.LegalStatus = &legalStatus
 	}
 
 	if input.BusinessDigitization != nil {
@@ -456,10 +439,7 @@ func (u enterpriseUsecase) UpdateEnterprise(
 		if err != nil {
 			return entity.Enterprise{}, err
 		}
-		if digitization != existing.BusinessDigitization {
-			changed["business_digitization"] = nullableAuditValue(string(digitization))
-		}
-		updated.BusinessDigitization = digitization
+		update.BusinessDigitization = &digitization
 	}
 
 	if input.InterventionNeeds != nil {
@@ -467,10 +447,7 @@ func (u enterpriseUsecase) UpdateEnterprise(
 		if err != nil {
 			return entity.Enterprise{}, err
 		}
-		if needs != existing.InterventionNeeds {
-			changed["intervention_needs"] = nullableAuditValue(string(needs))
-		}
-		updated.InterventionNeeds = needs
+		update.InterventionNeeds = &needs
 	}
 
 	if input.TrainingStatus != nil {
@@ -478,10 +455,7 @@ func (u enterpriseUsecase) UpdateEnterprise(
 		if err != nil {
 			return entity.Enterprise{}, err
 		}
-		if trainingStatus != existing.TrainingStatus {
-			changed["training_status"] = nullableAuditValue(string(trainingStatus))
-		}
-		updated.TrainingStatus = trainingStatus
+		update.TrainingStatus = &trainingStatus
 	}
 
 	if input.MentoringStatus != nil {
@@ -489,10 +463,7 @@ func (u enterpriseUsecase) UpdateEnterprise(
 		if err != nil {
 			return entity.Enterprise{}, err
 		}
-		if mentoringStatus != existing.MentoringStatus {
-			changed["mentoring_status"] = nullableAuditValue(string(mentoringStatus))
-		}
-		updated.MentoringStatus = mentoringStatus
+		update.MentoringStatus = &mentoringStatus
 	}
 
 	if input.CapitalAccess != nil {
@@ -500,10 +471,7 @@ func (u enterpriseUsecase) UpdateEnterprise(
 		if err != nil {
 			return entity.Enterprise{}, err
 		}
-		if capitalAccess != existing.CapitalAccess {
-			changed["capital_access"] = nullableAuditValue(string(capitalAccess))
-		}
-		updated.CapitalAccess = capitalAccess
+		update.CapitalAccess = &capitalAccess
 	}
 
 	if input.Partnership != nil {
@@ -511,10 +479,7 @@ func (u enterpriseUsecase) UpdateEnterprise(
 		if err != nil {
 			return entity.Enterprise{}, err
 		}
-		if partnership != existing.Partnership {
-			changed["partnership"] = nullableAuditValue(string(partnership))
-		}
-		updated.Partnership = partnership
+		update.Partnership = &partnership
 	}
 
 	if input.InitialTurnover != nil {
@@ -522,10 +487,7 @@ func (u enterpriseUsecase) UpdateEnterprise(
 		if err != nil {
 			return entity.Enterprise{}, err
 		}
-		if turnover != existing.InitialTurnover {
-			changed["initial_turnover"] = turnover
-		}
-		updated.InitialTurnover = turnover
+		update.InitialTurnover = &turnover
 	}
 
 	if input.CurrentTurnover != nil {
@@ -533,10 +495,7 @@ func (u enterpriseUsecase) UpdateEnterprise(
 		if err != nil {
 			return entity.Enterprise{}, err
 		}
-		if turnover != existing.CurrentTurnover {
-			changed["current_turnover"] = turnover
-		}
-		updated.CurrentTurnover = turnover
+		update.CurrentTurnover = &turnover
 	}
 
 	if input.District != nil {
@@ -544,10 +503,7 @@ func (u enterpriseUsecase) UpdateEnterprise(
 		if len(district) > maxDistrictLength {
 			return entity.Enterprise{}, badRequest("district must be at most 128 characters")
 		}
-		if district != existing.District {
-			changed["district"] = nullableAuditValue(district)
-		}
-		updated.District = district
+		update.District = &district
 	}
 
 	if input.Status != nil {
@@ -555,25 +511,16 @@ func (u enterpriseUsecase) UpdateEnterprise(
 		if err != nil {
 			return entity.Enterprise{}, err
 		}
-		if status != existing.Status {
-			changed["status"] = string(status)
-		}
-		updated.Status = status
-	}
-
-	if len(changed) == 0 {
-		return existing, nil
+		update.Status = &status
 	}
 
 	event := entity.EnterpriseAuditEvent{
-		EnterpriseID:  existing.ID,
-		ActorUserID:   actor.ID,
-		Action:        entity.AuditActionUpdate,
-		ChangedFields: changed,
-		CreatedAt:     updated.UpdatedAt,
+		ActorUserID: actor.ID,
+		Action:      entity.AuditActionUpdate,
+		CreatedAt:   update.UpdatedAt,
 	}
 
-	result, err := u.repo.UpdateEnterprise(ctx, publicID, ownerID, updated, event)
+	result, err := u.repo.UpdateEnterprise(ctx, publicID, scopeOwnerID(actor), update, event)
 	if err != nil {
 		return entity.Enterprise{}, mapEnterpriseRepositoryError(err)
 	}
@@ -755,15 +702,6 @@ func normalizeTurnover(field, value string) (string, error) {
 	}
 
 	return integerPart + "." + fractionPart, nil
-}
-
-// nullableAuditValue records an empty cleared string as JSON null.
-func nullableAuditValue(value string) any {
-	if value == "" {
-		return nil
-	}
-
-	return value
 }
 
 func mapEnterpriseRepositoryError(err error) error {
