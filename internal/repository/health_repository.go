@@ -2,6 +2,7 @@ package repository
 
 // HealthRepository provides application health status.
 type HealthRepository interface {
+	// Status reports the current health status.
 	Status() string
 }
 
