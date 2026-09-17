@@ -933,14 +933,15 @@ Create a catalog entry.
 
 Partially update an active catalog entry. Omitted fields keep their current
 value; an empty string clears a nullable string field. `training_date` may be
-changed but not cleared once set.
+changed but not cleared once set. A request that supplies no update fields is
+rejected.
 
 **Endpoint:** `PATCH /training-catalog/{publicID}`
 
 **Authentication:** Admin.
 
 **Request Fields:** The create fields as optional fields. `training_slots`, when
-supplied, must be positive.
+supplied, must be positive. At least one field is required.
 
 **Response:** The updated catalog object.
 
