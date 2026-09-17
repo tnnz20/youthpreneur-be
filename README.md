@@ -33,6 +33,27 @@ Response:
 {"status":"ok"}
 ```
 
+### Authentication
+
+The API uses `HttpOnly` cookies. Log in, then call protected routes with the
+cookie jar:
+
+```bash
+curl -c cookies.txt -X POST http://localhost:8080/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"alice@example.com","password":"password123"}'
+
+curl -b cookies.txt http://localhost:8080/users
+
+curl -b cookies.txt -X POST http://localhost:8080/auth/refresh
+curl -b cookies.txt -X POST http://localhost:8080/auth/logout
+```
+
+The access token lasts 15 minutes and the refresh token lasts 7 days. Refresh
+rotates the token pair, and logout revokes the refresh session. Set
+`APP_ENV=production` so cookies are marked `Secure`, and always set
+`APP_AUTH_SECRET` to at least 32 bytes outside development.
+
 ### Run PostgreSQL
 
 PostgreSQL is provided for local development and the application connects to it
@@ -68,9 +89,16 @@ Configuration is read from environment variables through Viper.
 | --- | --- | --- |
 | `APP_ADDR` | `:8080` | HTTP listen address |
 | `APP_LOG_LEVEL` | `info` | Log level: `debug`, `info`, `warn`, or `error` |
-| `APP_ENVIRONMENT` | `development` | Application environment |
+| `APP_ENV` | `development` | Application environment; `production` enables secure cookies |
 | `APP_VERSION` | `dev` | Application version reported at startup |
 | `APP_SHUTDOWN_TIMEOUT` | `10s` | Graceful shutdown timeout for `SIGINT`/`SIGTERM` |
+| `APP_AUTH_SECRET` | `dev-only-insecure-secret-change-me` | JWT signing secret; at least 32 bytes outside development |
+| `APP_AUTH_ACCESS_TOKEN_TTL` | `15m` | Access token lifetime |
+| `APP_AUTH_REFRESH_TOKEN_TTL` | `168h` | Refresh token lifetime |
+| `APP_CORS_ALLOWED_ORIGINS` | `http://localhost:3000,http://localhost:5173` | Credentialed CORS origins |
+| `APP_RATE_LIMIT_LOGIN_PER_MINUTE` | `5` | Login requests per minute per client IP |
+| `APP_RATE_LIMIT_REFRESH_PER_MINUTE` | `10` | Refresh requests per minute per client IP |
+| `APP_RATE_LIMIT_GENERAL_PER_MINUTE` | `60` | General API requests per minute per client IP |
 | `POSTGRES_HOST` | `localhost` | PostgreSQL host |
 | `POSTGRES_PORT` | `5432` | PostgreSQL port |
 | `POSTGRES_USER` | `postgres` | PostgreSQL user |
@@ -114,11 +142,14 @@ cmd/web/                         HTTP server entrypoint
 cmd/migrate/                     database migration CLI
 db/migrations/                   embedded SQL migrations
 internal/config/                 configuration, logger, and dependency bootstrap
-internal/delivery/http/          HTTP handlers and routes
+internal/delivery/http/handler/  HTTP handlers
+internal/delivery/http/route/    route registration and permissions
+internal/delivery/http/middleware/ authentication, authorization, CORS, rate limiting
 internal/entity/                 domain entities
 internal/model/                  HTTP request and response models
 internal/repository/             repository interfaces
 internal/repository/persistence/ PostgreSQL repository implementations
+internal/token/                  access token signing and refresh token generation
 internal/usecase/                application use cases
 api/api-contract.md              HTTP API contract
 compose.yaml                     local PostgreSQL container

@@ -21,6 +21,16 @@
   `users.password` hash column.
 - `phone` and `address` profile fields in the user API request and response
   models.
+- Cookie-based JWT authentication with `POST /auth/login`, `POST /auth/refresh`,
+  and `POST /auth/logout`.
+- `refresh_sessions` migration and repository storing SHA-256 refresh token
+  hashes with atomic rotation, revoke, and revoke-all operations.
+- Access token signing service plus opaque refresh token generation and hashing.
+- Authentication, role, and ownership middleware that validates access cookies
+  and rejects inactive or deleted users.
+- Credentialed CORS middleware and per-client-IP fixed-window rate limiting with
+  `429` and `Retry-After`.
+- Auth, CORS, rate-limit, and `APP_ENV`-derived secure cookie configuration.
 
 ### Changed
 
@@ -39,8 +49,11 @@
   the unregistered `postgres://` scheme.
 - Documented the six-digit public ID ceiling and that public IDs are not
   authentication credentials.
-- Marked password reset as unsafe until authentication middleware restricts it
-  to authenticated admins.
+- All non-public routes now require authentication; admin routes require the
+  `admin` role, and profile and password updates require ownership or admin.
+- Password reset is restricted to authenticated admins.
+- `config.Bootstrap` validates `APP_AUTH_SECRET` outside development and returns
+  the middleware-wrapped `http.Handler`.
 
 - Centralized dependency wiring in `config.Bootstrap`, which now opens and
   verifies the PostgreSQL connection.
