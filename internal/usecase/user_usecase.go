@@ -230,6 +230,9 @@ func (u userUsecase) UpdateProfile(
 	profile entity.Profile,
 ) (entity.User, error) {
 	profile = sanitizeProfile(profile)
+	if profile.FullName == "" {
+		return entity.User{}, badRequest("full_name is required")
+	}
 	if err := validateGender(profile.Gender); err != nil {
 		return entity.User{}, err
 	}
@@ -346,6 +349,9 @@ func (u userUsecase) FindUsers(ctx context.Context, input FindUsersInput) (FindU
 }
 
 func validateCreateUser(email, password string, profile entity.Profile) error {
+	if profile.FullName == "" {
+		return badRequest("full_name is required")
+	}
 	if !emailPattern.MatchString(email) {
 		return badRequest("invalid email")
 	}

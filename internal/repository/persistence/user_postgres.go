@@ -78,7 +78,7 @@ func (r userRepository) CreateUser(ctx context.Context, user entity.User) (entit
 		INSERT INTO user_profiles (user_id, full_name, nik, birth_date, gender, district, phone, address, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 		id,
-		nullString(profile.FullName),
+		profile.FullName,
 		nullString(profile.NIK),
 		nullTime(profile.BirthDate),
 		nullString(string(profile.Gender)),
@@ -212,7 +212,7 @@ func (r userRepository) UpdateProfile(
 		  AND users.public_id = $1
 		  AND users.deleted_at IS NULL`,
 		publicID,
-		nullString(profile.FullName),
+		profile.FullName,
 		nullString(profile.NIK),
 		nullTime(profile.BirthDate),
 		nullString(string(profile.Gender)),

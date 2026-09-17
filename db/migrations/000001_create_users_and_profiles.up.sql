@@ -15,7 +15,7 @@ CREATE TABLE users (
 CREATE TABLE user_profiles (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL UNIQUE REFERENCES users (id) ON DELETE CASCADE,
-    full_name VARCHAR(255),
+    full_name VARCHAR(255) NOT NULL,
     nik VARCHAR(32),
     birth_date DATE,
     gender VARCHAR(50),

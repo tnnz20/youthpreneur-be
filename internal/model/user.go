@@ -13,8 +13,8 @@ type CreateUserRequest struct {
 	Address   string `json:"address"`
 }
 
-// UpdateProfileRequest is the JSON body for replacing profile fields. Omitted
-// fields are cleared.
+// UpdateProfileRequest is the JSON body for replacing profile fields. FullName
+// is required; other omitted fields are cleared.
 type UpdateProfileRequest struct {
 	FullName  string `json:"full_name"`
 	NIK       string `json:"nik"`
