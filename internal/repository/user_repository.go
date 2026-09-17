@@ -27,6 +27,10 @@ type UserRepository interface {
 	CreateUser(ctx context.Context, user entity.User) (entity.User, error)
 	// FindUserByPublicID returns the active user matching publicID.
 	FindUserByPublicID(ctx context.Context, publicID string) (entity.User, error)
+	// FindUserByEmail returns the active user matching the normalized email.
+	FindUserByEmail(ctx context.Context, email string) (entity.User, error)
+	// FindUserByID returns the active user matching the internal user id.
+	FindUserByID(ctx context.Context, id int) (entity.User, error)
 	// FindUsers returns active users ordered by ascending id, filtered by
 	// filter.
 	FindUsers(ctx context.Context, filter entity.UserFilter) ([]entity.User, error)

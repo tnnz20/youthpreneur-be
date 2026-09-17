@@ -10,7 +10,7 @@ func TestLoadDefaults(t *testing.T) {
 	for _, key := range []string{
 		"APP_ADDR",
 		"APP_LOG_LEVEL",
-		"APP_ENVIRONMENT",
+		"APP_ENV",
 		"APP_VERSION",
 		"APP_SHUTDOWN_TIMEOUT",
 	} {
@@ -80,8 +80,147 @@ func TestPostgresConfigDSNEscapesCredentials(t *testing.T) {
 	}
 }
 
+func TestLoadSecureCookiesFollowsEnvironment(t *testing.T) {
+	t.Setenv("APP_ENV", "production")
+	if !Load().SecureCookies {
+		t.Error("secure cookies = false, want true in production")
+	}
+
+	t.Setenv("APP_ENV", "development")
+	if Load().SecureCookies {
+		t.Error("secure cookies = true, want false outside production")
+	}
+}
+
+func TestLoadAuthDefaults(t *testing.T) {
+	for _, key := range []string{
+		"APP_AUTH_SECRET",
+		"APP_AUTH_ACCESS_TOKEN_TTL",
+		"APP_AUTH_REFRESH_TOKEN_TTL",
+	} {
+		if value, ok := os.LookupEnv(key); ok {
+			t.Cleanup(func() { os.Setenv(key, value) })
+			os.Unsetenv(key)
+		}
+	}
+
+	cfg := Load()
+
+	if cfg.Auth.Secret != "" {
+		t.Errorf("secret = %q, want empty when unset", cfg.Auth.Secret)
+	}
+	if cfg.Auth.AccessTokenTTL != defaultAccessTTL {
+		t.Errorf("access ttl = %v, want %v", cfg.Auth.AccessTokenTTL, defaultAccessTTL)
+	}
+	if cfg.Auth.RefreshTokenTTL != defaultRefreshTTL {
+		t.Errorf("refresh ttl = %v, want %v", cfg.Auth.RefreshTokenTTL, defaultRefreshTTL)
+	}
+}
+
+func TestLoadAuthOverrides(t *testing.T) {
+	t.Setenv("APP_AUTH_SECRET", "a-strong-secret-value-that-is-long-enough")
+	t.Setenv("APP_AUTH_ACCESS_TOKEN_TTL", "1m")
+	t.Setenv("APP_AUTH_REFRESH_TOKEN_TTL", "24h")
+
+	cfg := Load()
+
+	if cfg.Auth.Secret != "a-strong-secret-value-that-is-long-enough" {
+		t.Errorf("secret = %q, want override", cfg.Auth.Secret)
+	}
+	if cfg.Auth.AccessTokenTTL != time.Minute {
+		t.Errorf("access ttl = %v, want %v", cfg.Auth.AccessTokenTTL, time.Minute)
+	}
+	if cfg.Auth.RefreshTokenTTL != 24*time.Hour {
+		t.Errorf("refresh ttl = %v, want %v", cfg.Auth.RefreshTokenTTL, 24*time.Hour)
+	}
+}
+
+func TestValidateRequiresAuthSecret(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  Config
+	}{
+		{name: "missing in development", cfg: Config{Environment: "development"}},
+		{name: "missing in production", cfg: Config{Environment: "production"}},
+		{name: "empty in development", cfg: Config{Environment: "development", Auth: AuthConfig{Secret: ""}}},
+		{name: "empty in production", cfg: Config{Environment: "production", Auth: AuthConfig{Secret: ""}}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.cfg.Validate(); err == nil {
+				t.Error("Validate() error = nil, want missing-secret rejection")
+			}
+		})
+	}
+}
+
+func TestValidateRejectsWeakSecretOutsideDevelopment(t *testing.T) {
+	if err := (Config{Environment: "development", Auth: AuthConfig{Secret: "short"}}).Validate(); err != nil {
+		t.Errorf("development Validate() error = %v, want nil", err)
+	}
+
+	if err := (Config{Environment: "production", Auth: AuthConfig{Secret: "short"}}).Validate(); err == nil {
+		t.Error("production Validate() error = nil, want rejection")
+	}
+
+	strong := "a-strong-secret-value-that-is-long-enough"
+	if err := (Config{Environment: "production", Auth: AuthConfig{Secret: strong}}).Validate(); err != nil {
+		t.Errorf("production Validate() error = %v, want nil", err)
+	}
+}
+
+func TestLoadCORSOrigins(t *testing.T) {
+	if value, ok := os.LookupEnv("APP_CORS_ALLOWED_ORIGINS"); ok {
+		t.Cleanup(func() { os.Setenv("APP_CORS_ALLOWED_ORIGINS", value) })
+		os.Unsetenv("APP_CORS_ALLOWED_ORIGINS")
+	}
+
+	got := Load().CORS.AllowedOrigins
+	want := []string{"http://localhost:3000", "http://localhost:5173"}
+	if len(got) != len(want) {
+		t.Fatalf("origins = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("origin[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+
+	t.Setenv("APP_CORS_ALLOWED_ORIGINS", "https://app.example.com, https://admin.example.com")
+	override := Load().CORS.AllowedOrigins
+	if len(override) != 2 || override[0] != "https://app.example.com" || override[1] != "https://admin.example.com" {
+		t.Errorf("origins = %v, want parsed override", override)
+	}
+}
+
+func TestLoadRateLimitDefaults(t *testing.T) {
+	for _, key := range []string{
+		"APP_RATE_LIMIT_LOGIN_PER_MINUTE",
+		"APP_RATE_LIMIT_REFRESH_PER_MINUTE",
+		"APP_RATE_LIMIT_GENERAL_PER_MINUTE",
+	} {
+		if value, ok := os.LookupEnv(key); ok {
+			t.Cleanup(func() { os.Setenv(key, value) })
+			os.Unsetenv(key)
+		}
+	}
+
+	cfg := Load().RateLimit
+
+	if cfg.LoginPerMinute != defaultLoginRateLimit {
+		t.Errorf("login limit = %d, want %d", cfg.LoginPerMinute, defaultLoginRateLimit)
+	}
+	if cfg.RefreshPerMinute != defaultRefreshRateLimit {
+		t.Errorf("refresh limit = %d, want %d", cfg.RefreshPerMinute, defaultRefreshRateLimit)
+	}
+	if cfg.GeneralPerMinute != defaultGeneralRateLimit {
+		t.Errorf("general limit = %d, want %d", cfg.GeneralPerMinute, defaultGeneralRateLimit)
+	}
+}
+
 func TestLoadOverrides(t *testing.T) {
-	t.Setenv("APP_ENVIRONMENT", "production")
+	t.Setenv("APP_ENV", "production")
 	t.Setenv("APP_VERSION", "1.2.3")
 	t.Setenv("APP_SHUTDOWN_TIMEOUT", "500ms")
 

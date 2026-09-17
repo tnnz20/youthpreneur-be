@@ -21,15 +21,20 @@
 
 - Configuration comes from Viper environment variables; copy `.env.example` to `.env`. Never commit `.env` or credentials.
 - PostgreSQL timestamps are Unix epoch seconds in `BIGINT`; `birth_date` is `YYYY-MM-DD`.
-- User creation always assigns `member`; role is not accepted in create request. Admin provisioning requires future authenticated authorization.
+- User creation always assigns `member`; role is not accepted in create request. Admin provisioning requires a trusted database or admin flow.
 - Public IDs use `YTP-` plus six digits and are lookup handles, not secrets.
 - User/profile deletion is soft delete and updates both rows in one transaction.
 - Cursor pagination uses `users.id`; do not replace it with offset pagination.
-- Password hashes are never returned. Password reset is currently unauthenticated and unsafe; keep it restricted to trusted development networks until admin auth middleware exists.
+- Password hashes are never returned.
+- Auth is cookie-based JWT: 15-minute access token, 7-day opaque refresh token stored only as a SHA-256 hash. Cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` only when `APP_ENV` is exactly `production`.
+- `APP_AUTH_SECRET` has no default and is required in every environment; startup rejects a missing or empty secret, and a secret shorter than 32 bytes outside development.
+- Refresh rotation revokes the consumed session and issues a replacement in one transaction; replay of a revoked token revokes the user's whole session family; password change, admin reset, and deactivation revoke all user sessions; expired sessions are cleaned opportunistically. Logout revokes and clears cookies.
+- Authorization uses the current database role loaded by `Authenticate`, never the JWT role claim, so demotions take effect on the next request.
+- Rate limiting is fixed-window, in-memory, and keyed by `RemoteAddr`; it requires direct single-process exposure. Add trusted-proxy IP handling and shared storage before proxied or multi-replica deployments.
 - Request JSON bodies are capped at 1 MiB; password length is 8–72 bytes.
 
 ## Change Hygiene
 
 - Preserve file naming: `*_handler.go`, `*_usecase.go`, `*_repository.go`; PostgreSQL implementations belong under `internal/repository/persistence`.
 - Use parameterized SQL and keep repository transactions explicit for multi-table operations.
-- Do not add authentication or middleware implicitly; document and update `api/api-contract.md` when that boundary changes.
+- Authentication, role, ownership, CORS, and rate-limit middleware live in `internal/delivery/http/middleware`; route permissions are defined in `route.go` and must stay aligned with `api/api-contract.md`.

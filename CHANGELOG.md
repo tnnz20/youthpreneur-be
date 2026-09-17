@@ -21,6 +21,16 @@
   `users.password` hash column.
 - `phone` and `address` profile fields in the user API request and response
   models.
+- Cookie-based JWT authentication with `POST /auth/login`, `POST /auth/refresh`,
+  and `POST /auth/logout`.
+- `refresh_sessions` migration and repository storing SHA-256 refresh token
+  hashes with atomic rotation, revoke, and revoke-all operations.
+- Access token signing service plus opaque refresh token generation and hashing.
+- Authentication, role, and ownership middleware that validates access cookies
+  and rejects inactive or deleted users.
+- Credentialed CORS middleware and per-client-IP fixed-window rate limiting with
+  `429` and `Retry-After`.
+- Auth, CORS, rate-limit, and `APP_ENV`-derived secure cookie configuration.
 
 ### Changed
 
@@ -39,8 +49,11 @@
   the unregistered `postgres://` scheme.
 - Documented the six-digit public ID ceiling and that public IDs are not
   authentication credentials.
-- Marked password reset as unsafe until authentication middleware restricts it
-  to authenticated admins.
+- All non-public routes now require authentication; admin routes require the
+  `admin` role, and profile and password updates require ownership or admin.
+- Password reset is restricted to authenticated admins.
+- `config.Bootstrap` validates `APP_AUTH_SECRET` outside development and returns
+  the middleware-wrapped `http.Handler`.
 
 - Centralized dependency wiring in `config.Bootstrap`, which now opens and
   verifies the PostgreSQL connection.
@@ -49,3 +62,32 @@
 - Moved embedded SQL migrations from `migrations/` to `db/migrations/`.
 - User soft delete now updates `users` and `user_profiles` in one transaction
   with the same `deleted_at` and `updated_at` timestamp.
+
+### Fixed
+
+- `APP_AUTH_SECRET` no longer has a usable default: startup rejects a missing or
+  empty secret in every environment and keeps the 32-byte minimum outside
+  development.
+- Password change, admin password reset, and account deactivation now revoke the
+  user's refresh sessions; resetting a password no longer leaves stolen refresh
+  sessions valid.
+- Replaying a rotated refresh token now revokes the user's entire refresh
+  session family instead of only rejecting the replayed token.
+- Expired refresh sessions are deleted opportunistically during login and
+  refresh, so the table no longer grows without bound.
+- Role and ownership checks now use the current database role loaded by
+  `Authenticate` instead of the JWT role claim, so stale admin claims cannot
+  retain access after demotion.
+- Login verifies the password before checking `IsActive`, so inactive accounts
+  cannot be distinguished from unknown emails or wrong passwords by timing.
+- Middleware error responses now share the handler `WriteError` helper instead
+  of a duplicate writer; the exported `RateLimiter.Allow` was made private.
+- General rate limiting now wraps CORS so disallowed-origin requests are also
+  counted, and expired cookie expiries are clamped to `MaxAge=0`.
+- Removed the redundant JWT signing-method type assertion that duplicated
+  `jwt.WithValidMethods`.
+- Documented the single-process rate-limiter limitation, the exact `APP_ENV`
+  cookie `Secure` rule, the `APP_ENVIRONMENT` to `APP_ENV` rename, session
+  revocation and cleanup behavior, and the password change/reset split.
+- Removed the duplicated `writeJSONError` middleware helper and the stale
+  "unsafe" note on admin password reset.
