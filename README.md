@@ -164,6 +164,17 @@ upgrading.
   requested fields, and return the committed row without a post-commit re-read.
   Migration `000004` adds database `CHECK` constraints that keep turnover
   non-negative and below `10000000000000`.
+- **Training catalog and enrollment.** Catalog reads are public; catalog writes
+  are admin-only. Enrollment mutations require authentication and are scoped to
+  the current user for members; admins can view all and per-catalog history.
+  `user_id` is always server-derived. Capacity is enforced in one transaction
+  that locks the catalog row with `SELECT ... FOR UPDATE`, so `training_slots`
+  is never exceeded. Cancellation is a soft delete that preserves history, and
+  the partial unique active-enrollment index allows re-enrollment afterward.
+  Catalog list filters are `category`, `training_status`, `training_date`, and
+  `training_period`; cursor pagination uses internal IDs with `limit + 1`.
+  Migration `000005` adds the tables, the positive `training_slots` check, the
+  active-enrollment unique index, and the catalog/enrollment indexes.
 
 ## Migrations
 

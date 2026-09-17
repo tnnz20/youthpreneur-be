@@ -48,6 +48,17 @@ bearer header. Passwords and token values never appear in responses or logs.
 | `GET /enterprises/{publicID}` | Authenticated; owner or admin |
 | `PATCH /enterprises/{publicID}` | Authenticated; owner (limited fields) or admin |
 | `DELETE /enterprises/{publicID}` | Authenticated; owner or admin |
+| `GET /training-catalog` | Public |
+| `GET /training-catalog/{publicID}` | Public |
+| `POST /training-catalog` | Admin |
+| `PATCH /training-catalog/{publicID}` | Admin |
+| `PATCH /training-catalog/{publicID}/status` | Admin |
+| `DELETE /training-catalog/{publicID}` | Admin |
+| `POST /training-enrollments` | Authenticated |
+| `DELETE /training-enrollments/{publicID}` | Authenticated; owner or admin |
+| `GET /training-enrollments/my` | Authenticated; current user only |
+| `GET /training-enrollments` | Admin |
+| `GET /training-enrollments/catalog/{catalogPublicID}` | Admin |
 
 Authentication rejects missing, invalid, or expired access tokens and inactive
 or deleted users with `401`. Role and ownership checks reject authenticated but
@@ -792,6 +803,343 @@ deleted again.
 
 ---
 
+## Training Catalog and Enrollment Endpoints
+
+Training catalog entries are an independent aggregate with a generated
+`YTP-DDDDDD` public ID. Catalog reads are public; catalog writes are admin-only.
+Enrollments link one user to one catalog offering and always take
+`user_id` from the authenticated identity, never from the request.
+
+`training_status` reuses `process_status_enum`: `planned`, `ongoing`, or
+`completed`. A catalog accepts enrollments only while its status is `planned` or
+`ongoing`; `completed` or unset is closed. `training_slots` is an optional
+positive capacity; `NULL` means unlimited. Migration `000005` adds a named
+`CHECK` constraint (`training_catalog_training_slots_positive`) that rejects
+non-positive capacity from any writer.
+
+Cancellation is a soft delete of the enrollment (`deleted_at`), so history is
+preserved. A partial unique index (`training_enrollments_active_unique`) allows
+at most one active enrollment per user and catalog, and re-enrollment after
+cancellation. Capacity is enforced transactionally: the enrollment insert locks
+the catalog row with `SELECT ... FOR UPDATE`, then counts active enrollments so
+`training_slots` is never exceeded, including under concurrent requests.
+
+---
+
+### 18. List Training Catalog
+
+List active catalog entries with optional filters and cursor pagination.
+
+**Endpoint:** `GET /training-catalog`
+
+**Authentication:** Public.
+
+**Query Parameters:**
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `cursor` | integer string | No | Return catalogs with `training_catalog.id` greater than cursor |
+| `limit` | integer | No | Page size, default 20, maximum 100 |
+| `category` | string | No | Exact category filter |
+| `training_status` | string | No | `planned`, `ongoing`, or `completed` |
+| `training_date` | string | No | `YYYY-MM-DD` exact date filter |
+| `training_period` | string | No | Exact period filter |
+
+`name`, `pic_phone`, `speaker`, link, slots, IDs, and timestamps are not
+filterable. `next_cursor` is omitted when no next page exists; clients must pass
+the returned value and must not construct cursors.
+
+**Response:**
+
+```json
+{
+  "training_catalogs": [
+    {
+      "public_id": "YTP-482910",
+      "name": "Bisnis Digital",
+      "description": "Pelatihan pemasaran digital",
+      "pic_phone": "08123456789",
+      "category": "Pemasaran",
+      "training_slots": 30,
+      "training_status": "planned",
+      "link": "https://example.com/training",
+      "training_date": "2026-10-01",
+      "training_period": "09:00-12:00",
+      "speaker": "Budi",
+      "created_at": 1700000000,
+      "updated_at": 1700000000
+    }
+  ],
+  "next_cursor": "42"
+}
+```
+
+**Status Code:** `200 OK`
+
+**Errors:** `400 Bad Request`, `500 Internal Server Error`
+
+---
+
+### 19. Get Training Catalog
+
+Retrieve one active catalog entry by public ID.
+
+**Endpoint:** `GET /training-catalog/{publicID}`
+
+**Authentication:** Public.
+
+**Response:** The catalog object shown in the list response. Optional fields
+serialize as JSON `null` when unset.
+
+**Status Code:** `200 OK`
+
+**Errors:** `404 Not Found`, `500 Internal Server Error`
+
+---
+
+### 20. Create Training Catalog
+
+Create a catalog entry.
+
+**Endpoint:** `POST /training-catalog`
+
+**Authentication:** Admin.
+
+**Request Fields:**
+
+| Field | Type | Required | Format | Notes |
+| --- | --- | --- | --- | --- |
+| `name` | string | No | Up to 255 characters | Trimmed; empty stores `null` |
+| `description` | string | No | — | Trimmed; empty stores `null` |
+| `pic_phone` | string | No | Up to 50 characters | Trimmed; empty stores `null` |
+| `category` | string | No | Up to 100 characters | Trimmed; empty stores `null` |
+| `training_slots` | integer | No | Positive | `null` or omitted means unlimited |
+| `training_status` | string | No | `process_status_enum` value | Empty stores `null` |
+| `link` | string | No | `http`/`https` URL, up to 255 characters | Empty stores `null` |
+| `training_date` | string | No | `YYYY-MM-DD` | Empty stores `null` |
+| `training_period` | string | No | Up to 100 characters | Trimmed; empty stores `null` |
+| `speaker` | string | No | — | Trimmed; empty stores `null` |
+
+`public_id`, timestamps, and deletion state are server-controlled.
+
+**Status Code:** `201 Created`
+
+**Errors:** `400 Bad Request`, `401 Unauthorized`, `403 Forbidden`,
+`500 Internal Server Error`
+
+---
+
+### 21. Update Training Catalog
+
+Partially update an active catalog entry. Omitted fields keep their current
+value; an empty string clears a nullable string field. `training_date` may be
+changed but not cleared once set.
+
+**Endpoint:** `PATCH /training-catalog/{publicID}`
+
+**Authentication:** Admin.
+
+**Request Fields:** The create fields as optional fields. `training_slots`, when
+supplied, must be positive.
+
+**Response:** The updated catalog object.
+
+**Status Code:** `200 OK`
+
+**Errors:** `400 Bad Request`, `401 Unauthorized`, `403 Forbidden`,
+`404 Not Found`, `500 Internal Server Error`
+
+---
+
+### 22. Update Training Catalog Status
+
+Change only the training status of an active catalog entry.
+
+**Endpoint:** `PATCH /training-catalog/{publicID}/status`
+
+**Authentication:** Admin.
+
+**Request Fields:**
+
+| Field | Type | Required | Format | Notes |
+| --- | --- | --- | --- | --- |
+| `training_status` | string | ✓ | `planned`, `ongoing`, or `completed` | Required |
+
+**Response:** The updated catalog object.
+
+**Status Code:** `200 OK`
+
+**Errors:** `400 Bad Request`, `401 Unauthorized`, `403 Forbidden`,
+`404 Not Found`, `500 Internal Server Error`
+
+---
+
+### 23. Soft Delete Training Catalog
+
+Soft delete an active catalog entry.
+
+**Endpoint:** `DELETE /training-catalog/{publicID}`
+
+**Authentication:** Admin.
+
+The server sets `deleted_at` and `updated_at` to the same Unix epoch-second
+value. Deleted catalogs are excluded from reads. Cancelled and active
+enrollments are retained.
+
+**Status Code:** `204 No Content`
+
+**Errors:** `401 Unauthorized`, `403 Forbidden`, `404 Not Found`,
+`500 Internal Server Error`
+
+---
+
+### 24. Enroll in Training
+
+Enroll the authenticated user in a catalog offering.
+
+**Endpoint:** `POST /training-enrollments`
+
+**Authentication:** Authenticated.
+
+**Request Fields:**
+
+| Field | Type | Required | Format | Notes |
+| --- | --- | --- | --- | --- |
+| `catalog_public_id` | string | ✓ | `YTP-DDDDDD` | Catalog to enroll in |
+
+**Request Example:**
+
+```json
+{
+  "catalog_public_id": "YTP-482910"
+}
+```
+
+The enrolling user, `register_date` (current date), and timestamps are
+server-controlled. Enrollment is rejected with `409` when the catalog is
+`completed`/unset, is full, or the user already has an active enrollment.
+Enrollment is rejected with `404` when the catalog does not exist or is
+soft deleted.
+
+**Response:**
+
+```json
+{
+  "public_id": "YTP-482920",
+  "user_public_id": "YTP-000007",
+  "register_date": "2026-09-17",
+  "created_at": 1700000000,
+  "updated_at": 1700000000,
+  "catalog": {
+    "public_id": "YTP-482910",
+    "name": "Bisnis Digital",
+    "training_status": "planned"
+  }
+}
+```
+
+**Status Code:** `201 Created`
+
+**Errors:** `400 Bad Request`, `401 Unauthorized`, `404 Not Found`,
+`409 Conflict`, `500 Internal Server Error`
+
+---
+
+### 25. Cancel Training Enrollment
+
+Cancel the caller's active enrollment.
+
+**Endpoint:** `DELETE /training-enrollments/{publicID}`
+
+**Authentication:** Authenticated; owner or admin. A member receives `404` for
+an enrollment they do not own.
+
+The server sets `deleted_at` and `updated_at` to the same Unix epoch-second
+value. The row is retained so enrollment history survives, and the user may
+enroll again afterward.
+
+**Status Code:** `204 No Content`
+
+**Errors:** `401 Unauthorized`, `404 Not Found`, `500 Internal Server Error`
+
+---
+
+### 26. My Training Enrollment History
+
+List the current user's enrollment history, including cancelled enrollments.
+
+**Endpoint:** `GET /training-enrollments/my`
+
+**Authentication:** Authenticated.
+
+**Query Parameters:** `cursor` and `limit` as described for catalog listing.
+
+**Response:**
+
+```json
+{
+  "training_enrollments": [
+    {
+      "public_id": "YTP-482920",
+      "user_public_id": "YTP-000007",
+      "register_date": "2026-09-17",
+      "created_at": 1700000000,
+      "updated_at": 1700000100,
+      "catalog": {
+        "public_id": "YTP-482910",
+        "name": "Bisnis Digital",
+        "training_status": "planned"
+      }
+    }
+  ],
+  "next_cursor": "42"
+}
+```
+
+**Status Code:** `200 OK`
+
+**Errors:** `400 Bad Request`, `401 Unauthorized`, `500 Internal Server Error`
+
+---
+
+### 27. All Training Enrollment History
+
+List every user's enrollment history, including cancelled enrollments.
+
+**Endpoint:** `GET /training-enrollments`
+
+**Authentication:** Admin.
+
+**Query Parameters:** `cursor` and `limit` as described for catalog listing.
+
+**Response:** The enrollment page shown for `/training-enrollments/my`.
+
+**Status Code:** `200 OK`
+
+**Errors:** `400 Bad Request`, `401 Unauthorized`, `403 Forbidden`,
+`500 Internal Server Error`
+
+---
+
+### 28. Catalog Training Enrollment History
+
+List one catalog's enrollment history, including cancelled enrollments.
+
+**Endpoint:** `GET /training-enrollments/catalog/{catalogPublicID}`
+
+**Authentication:** Admin.
+
+**Query Parameters:** `cursor` and `limit` as described for catalog listing.
+
+**Response:** The enrollment page shown for `/training-enrollments/my`.
+
+**Status Code:** `200 OK`
+
+**Errors:** `400 Bad Request`, `401 Unauthorized`, `403 Forbidden`,
+`404 Not Found`, `500 Internal Server Error`
+
+---
+
 ## Error Response Format
 
 All errors use this shape:
@@ -811,7 +1159,7 @@ All errors use this shape:
 | `401 Unauthorized` | Missing, invalid, or expired credentials or refresh token |
 | `403 Forbidden` | Authenticated but not permitted, or disallowed CORS origin |
 | `404 Not Found` | Active user or enterprise does not exist, or is outside the caller's owner scope |
-| `409 Conflict` | Email is already registered |
+| `409 Conflict` | Email is registered, or training enrollment already exists, catalog is full, or catalog is closed |
 | `429 Too Many Requests` | Rate limit exceeded; see `Retry-After` |
 | `500 Internal Server Error` | Unexpected server or database failure |
 
@@ -842,6 +1190,20 @@ Request bodies are limited to 1 MiB. Unknown JSON fields are currently ignored.
   `business_digitization`, `intervention_needs`, `training_status`,
   `mentoring_status`, `capital_access`, `partnership`, `deleted_at`, plus
   cursor-friendly and composite owner/deleted/id combinations.
+- Training catalog optional fields are nullable; `training_slots` is a positive
+  `INTEGER` or `NULL` for unlimited. Catalog `training_status` reuses
+  `process_status_enum`; enrollment creation reserves capacity while the status
+  is `planned` or `ongoing`.
+- Enrollment `register_date`, `training_date`, and `training_period` are stored
+  as written; `register_date` is server-derived from the current date.
+- Enrollment cancellation is a soft delete that preserves history, and the
+  active uniqueness index allows re-enrollment after cancellation.
+- Migration `000005` adds `training_catalog` and `training_enrollments` with a
+  positive `training_slots` check, a partial unique active-enrollment index, and
+  indexes on catalog `deleted_at`, `training_date`, `category`, `training_status`,
+  and cursor, plus enrollment `training_catalog_id`, `user_id`, `deleted_at`,
+  active-catalog, and active-user-cursor combinations. It reuses the existing
+  `process_status_enum` and does not recreate it.
 
 ---
 

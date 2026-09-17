@@ -43,6 +43,18 @@
   with owner-scoped reads for members and unrestricted reads for admins.
 - Transactional enterprise audit events recording the actor, action, and
   changed fields JSONB for every create, update, and delete.
+- `training_catalog` and `training_enrollments` migration `000005` with
+  reusable `process_status_enum`, nullable catalog fields, a positive
+  `training_slots` `CHECK` constraint, a partial unique active-enrollment index,
+  and catalog/enrollment filter and cursor indexes.
+- Training catalog repository, use case, and HTTP handlers for public list and
+  get plus admin create, partial update, status update, and soft delete.
+- Training enrollment repository, use case, and HTTP handlers for authenticated
+  self-enrollment, cancellation, and own history, plus admin all-history and
+  per-catalog history.
+- Transactional capacity safety that locks the catalog row with
+  `SELECT ... FOR UPDATE`, rejects duplicates, closed, and full catalogs with
+  `409`, and preserves cancellation history so users can re-enroll.
 
 ### Changed
 
