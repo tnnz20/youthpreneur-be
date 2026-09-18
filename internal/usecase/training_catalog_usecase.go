@@ -125,7 +125,7 @@ func (u trainingCatalogUsecase) CreateTrainingCatalog(
 	}
 
 	for range publicIDAttempts {
-		publicID, err := generatePublicID()
+		publicID, err := GeneratePublicID()
 		if err != nil {
 			return entity.TrainingCatalog{}, fmt.Errorf("generate public id: %w", err)
 		}

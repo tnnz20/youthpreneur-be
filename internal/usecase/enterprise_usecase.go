@@ -239,7 +239,7 @@ func (u enterpriseUsecase) CreateEnterprise(
 
 	// Retry a bounded number of times on collision, matching user creation.
 	for range publicIDAttempts {
-		publicID, err := generatePublicID()
+		publicID, err := GeneratePublicID()
 		if err != nil {
 			return entity.Enterprise{}, fmt.Errorf("generate public id: %w", err)
 		}

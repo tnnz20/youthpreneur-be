@@ -87,7 +87,14 @@ func (f *fakeUserRepository) FindUsers(_ context.Context, filter entity.UserFilt
 		return nil, f.listErr
 	}
 
-	return f.users, nil
+	users := make([]entity.User, 0, len(f.users))
+	for _, user := range f.users {
+		if user.ID > filter.Cursor {
+			users = append(users, user)
+		}
+	}
+
+	return users, nil
 }
 
 func (f *fakeUserRepository) SoftDeleteUser(_ context.Context, publicID string, deletedAt int64) error {
@@ -364,6 +371,35 @@ func TestFindUsersClampsLimit(t *testing.T) {
 	}
 	if repo.lastFilter.Limit != 21 {
 		t.Errorf("default limit = %d, want 21", repo.lastFilter.Limit)
+	}
+}
+
+func TestFindUsersCursorPaginatesAcrossSkippedIDs(t *testing.T) {
+	// Member ids 1, 3, 5 model a list where admin rows were excluded at the
+	// database level. The cursor must advance on member ids without skipping.
+	repo := &fakeUserRepository{users: []entity.User{{ID: 1}, {ID: 3}, {ID: 5}}}
+	uc := usecase.NewUserUseCase(repo, newFakeSessionRepository())
+
+	first, err := uc.FindUsers(context.Background(), usecase.FindUsersInput{Limit: 2})
+	if err != nil {
+		t.Fatalf("FindUsers() error = %v", err)
+	}
+	if len(first.Users) != 2 || first.Users[0].ID != 1 || first.Users[1].ID != 3 {
+		t.Fatalf("first page ids = %+v, want [1 3]", first.Users)
+	}
+	if first.NextCursor != 3 {
+		t.Fatalf("next cursor = %d, want 3", first.NextCursor)
+	}
+
+	second, err := uc.FindUsers(context.Background(), usecase.FindUsersInput{Cursor: first.NextCursor, Limit: 2})
+	if err != nil {
+		t.Fatalf("FindUsers() error = %v", err)
+	}
+	if len(second.Users) != 1 || second.Users[0].ID != 5 {
+		t.Fatalf("second page ids = %+v, want [5]", second.Users)
+	}
+	if second.NextCursor != 0 {
+		t.Errorf("next cursor = %d, want 0 on last page", second.NextCursor)
 	}
 }
 

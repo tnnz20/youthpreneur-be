@@ -60,7 +60,7 @@ func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusCreated, toUserResponse(user))
 }
 
-// List handles GET /users.
+// List handles GET /users and returns active members only.
 func (h *UserHandler) List(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 

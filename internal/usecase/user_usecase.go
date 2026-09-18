@@ -128,8 +128,9 @@ type UserUseCase interface {
 	// returns ErrBadRequest when the new password is invalid and
 	// ErrUserNotFound when no active user matches.
 	ResetPassword(ctx context.Context, publicID string, newPassword string) error
-	// FindUsers returns one page of active users matching input. It returns
-	// ErrBadRequest for an invalid gender.
+	// FindUsers returns one page of active member users matching input. Admin
+	// accounts are never listed. It returns ErrBadRequest for an invalid
+	// gender.
 	FindUsers(ctx context.Context, input FindUsersInput) (FindUsersResult, error)
 }
 
@@ -153,7 +154,7 @@ func NewUserUseCase(repo repository.UserRepository, sessions repository.RefreshS
 // CreateUser validates input, assigns a generated public id, and persists a
 // new member account.
 func (u userUsecase) CreateUser(ctx context.Context, input CreateUserInput) (entity.User, error) {
-	email := strings.ToLower(strings.TrimSpace(input.Email))
+	email := NormalizeEmail(input.Email)
 
 	// Never trust a client-supplied role. Self-registration always creates a
 	// member; admin provisioning needs a trusted path such as a future
@@ -175,7 +176,7 @@ func (u userUsecase) CreateUser(ctx context.Context, input CreateUserInput) (ent
 	// six-digit space is effectively exhausted and we fail clearly instead of
 	// looping forever; see the public ID ceiling note on publicIDMax.
 	for range publicIDAttempts {
-		publicID, err := generatePublicID()
+		publicID, err := GeneratePublicID()
 		if err != nil {
 			return entity.User{}, fmt.Errorf("generate public id: %w", err)
 		}
@@ -277,7 +278,7 @@ func (u userUsecase) ChangePassword(
 	publicID string,
 	input ChangePasswordInput,
 ) error {
-	if err := validatePassword(input.NewPassword); err != nil {
+	if err := ValidatePassword(input.NewPassword); err != nil {
 		return err
 	}
 
@@ -313,7 +314,7 @@ func (u userUsecase) ChangePassword(
 // ResetPassword sets a new password for the active user matching publicID
 // without verifying the current one, then revokes that user's refresh sessions.
 func (u userUsecase) ResetPassword(ctx context.Context, publicID string, newPassword string) error {
-	if err := validatePassword(newPassword); err != nil {
+	if err := ValidatePassword(newPassword); err != nil {
 		return err
 	}
 
@@ -378,10 +379,10 @@ func validateCreateUser(email, password string, profile entity.Profile) error {
 	if profile.FullName == "" {
 		return badRequest("full_name is required")
 	}
-	if !emailPattern.MatchString(email) {
-		return badRequest("invalid email")
+	if err := ValidateEmail(email); err != nil {
+		return err
 	}
-	if err := validatePassword(password); err != nil {
+	if err := ValidatePassword(password); err != nil {
 		return err
 	}
 	if err := validateGender(profile.Gender); err != nil {
@@ -391,7 +392,10 @@ func validateCreateUser(email, password string, profile entity.Profile) error {
 	return nil
 }
 
-func validatePassword(password string) error {
+// ValidatePassword reports whether password satisfies the account password
+// policy. Trusted provisioning paths such as cmd/seeder share it so seeded
+// accounts obey the same rules as registration.
+func ValidatePassword(password string) error {
 	if len(password) < minPasswordLength {
 		return badRequest(fmt.Sprintf("password must be at least %d characters", minPasswordLength))
 	}
@@ -443,10 +447,24 @@ func hashPassword(password string) (string, error) {
 	return string(hash), nil
 }
 
-// generatePublicID returns a YTP- prefixed identifier with six random decimal
+// NormalizeEmail lowercases and trims an email address for storage and lookup.
+func NormalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
+// ValidateEmail reports whether email matches the accepted address format.
+func ValidateEmail(email string) error {
+	if !emailPattern.MatchString(email) {
+		return badRequest("invalid email")
+	}
+
+	return nil
+}
+
+// GeneratePublicID returns a YTP- prefixed identifier with six random decimal
 // digits drawn from crypto/rand. It is a lookup handle, not an authentication
 // credential; callers must not treat it as secret.
-func generatePublicID() (string, error) {
+func GeneratePublicID() (string, error) {
 	suffix, err := rand.Int(rand.Reader, big.NewInt(publicIDMax))
 	if err != nil {
 		return "", err

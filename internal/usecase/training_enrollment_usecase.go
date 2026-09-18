@@ -115,7 +115,7 @@ func (u trainingEnrollmentUsecase) Enroll(
 	registerDate := dateOnly(now)
 
 	for range publicIDAttempts {
-		publicID, err := generatePublicID()
+		publicID, err := GeneratePublicID()
 		if err != nil {
 			return entity.TrainingEnrollment{}, fmt.Errorf("generate public id: %w", err)
 		}

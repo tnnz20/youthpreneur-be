@@ -69,6 +69,34 @@ non-`Secure` cookies, so do not broaden that rule without review. Always set
 `APP_AUTH_SECRET`; startup rejects a missing or empty secret in every
 environment and a secret shorter than 32 bytes outside development.
 
+### Seed an admin
+
+`cmd/seeder` creates the first admin account from environment variables. It
+reads the same `POSTGRES_*` settings as the API, normalizes the email, validates
+the password against the registration policy (8–72 bytes), hashes it with
+bcrypt, and inserts the user and profile in one transaction:
+
+```bash
+export SEEDER_ADMIN_EMAIL=admin@example.com
+export SEEDER_ADMIN_PASSWORD='change-me-now'
+make seed
+```
+
+Both `SEEDER_ADMIN_EMAIL` and `SEEDER_ADMIN_PASSWORD` are required; a missing,
+empty, or invalid value fails before the database is touched. The seeder reads
+the process environment only; a `.env` file is not loaded automatically, so
+export the variables or pass them on the command line. The seeded profile
+uses the default full name `System Administrator` and leaves the optional
+profile fields empty. The admin public ID uses the usual `YTP-` plus six digits
+format. Re-running with an email that already exists fails with "already
+registered" and writes nothing. The success log prints only the email and public
+ID; the password and hash are never logged.
+
+Rotate the seeded admin password after the first provisioning: log in and use
+`PUT /users/{publicID}/password`, or have another admin reset it. Do not keep the
+initial `SEEDER_ADMIN_PASSWORD` value in service; remove it from the environment
+once the account is in use.
+
 ### Run PostgreSQL
 
 PostgreSQL is provided for local development and the application connects to it
@@ -120,6 +148,8 @@ Configuration is read from environment variables through Viper.
 | `POSTGRES_PASSWORD` | `postgres` | PostgreSQL password |
 | `POSTGRES_DB` | `youthpreneur` | PostgreSQL database |
 | `POSTGRES_SSLMODE` | `disable` | PostgreSQL SSL mode |
+| `SEEDER_ADMIN_EMAIL` | — | Seed admin email; required by `cmd/seeder` |
+| `SEEDER_ADMIN_PASSWORD` | — | Seed admin password (8–72 bytes); required by `cmd/seeder` |
 
 `.env` is local-only and ignored by Git. Use `.env.example` as the starting
 template; the process environment is what `Viper` reads. `APP_ENV` is the only
@@ -149,6 +179,9 @@ upgrading.
   an already issued access token; it remains valid for up to its 15-minute
   lifetime. Authorization uses the current database role, so demotions take
   effect on the next request.
+- **`GET /users` lists member users only.** Admin accounts are excluded before
+  the cursor and limit are applied, so pagination covers members. Use
+  `GET /users/{publicID}` to read a specific admin.
 - **Enterprise ownership is one-to-many and server-derived.** Any active member
   can create many enterprises, but `enterprises.user_id` always comes from the
   authenticated identity, never from the request. Members list and read only

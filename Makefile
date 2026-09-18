@@ -3,7 +3,7 @@
 engine ?= podman
 compose := $(engine) compose
 
-.PHONY: help run test vet fmt build migrate-up migrate-down migrate-force migrate-version compose-up compose-down compose-down-v
+.PHONY: help run test vet fmt build seed migrate-up migrate-down migrate-force migrate-version compose-up compose-down compose-down-v
 
 help:
 	@echo "Go commands:"
@@ -12,6 +12,7 @@ help:
 	@echo "  vet              Run go vet"
 	@echo "  fmt              Format Go sources"
 	@echo "  build            Build bin/web"
+	@echo "  seed             Seed the initial admin from SEEDER_ADMIN_*"
 	@echo ""
 	@echo "Migration commands:"
 	@echo "  migrate-up       Apply database migrations"
@@ -38,6 +39,9 @@ fmt:
 
 build:
 	go build -o bin/web ./cmd/web
+
+seed:
+	go run ./cmd/seeder
 
 migrate-up:
 	go run ./cmd/migrate up

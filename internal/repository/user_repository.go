@@ -31,8 +31,9 @@ type UserRepository interface {
 	FindUserByEmail(ctx context.Context, email string) (entity.User, error)
 	// FindUserByID returns the active user matching the internal user id.
 	FindUserByID(ctx context.Context, id int) (entity.User, error)
-	// FindUsers returns active users ordered by ascending id, filtered by
-	// filter.
+	// FindUsers returns active member users ordered by ascending id, filtered
+	// by filter. Admin accounts are excluded from the list; use
+	// FindUserByPublicID to read an admin directly.
 	FindUsers(ctx context.Context, filter entity.UserFilter) ([]entity.User, error)
 	// SoftDeleteUser sets deleted_at for the active user matching publicID.
 	// Deleting an unknown or already deleted user returns ErrUserNotFound.
