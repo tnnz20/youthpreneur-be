@@ -258,7 +258,9 @@ to 72 bytes. `birth_date` must use `YYYY-MM-DD` and cannot be in the future.
 
 ### 6. List Users
 
-List active users with optional profile filters and cursor pagination.
+List active member users with optional profile filters and cursor pagination.
+Admin accounts are excluded. To retrieve a specific admin, use
+`GET /users/{publicID}`.
 
 **Endpoint:** `GET /users`
 
@@ -301,7 +303,9 @@ List active users with optional profile filters and cursor pagination.
 ```
 
 `next_cursor` is omitted when no next page exists. Clients must pass the value
-returned by the server and must not construct cursors.
+returned by the server and must not construct cursors. Because admin accounts
+are filtered before the cursor and limit are applied, the page size and cursor
+stream cover member users only.
 
 **Status Code:** `200 OK`
 
@@ -312,7 +316,8 @@ returned by the server and must not construct cursors.
 
 ### 7. Get User
 
-Retrieve one active user and profile by public ID.
+Retrieve one active user and profile by public ID. Unlike `GET /users`, direct
+lookup may return an active admin account.
 
 **Endpoint:** `GET /users/{publicID}`
 

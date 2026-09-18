@@ -55,6 +55,12 @@
 - Transactional capacity safety that locks the catalog row with
   `SELECT ... FOR UPDATE`, rejects duplicates, closed, and full catalogs with
   `409`, and preserves cancellation history so users can re-enroll.
+- `cmd/seeder` provisions the first admin from `SEEDER_ADMIN_EMAIL` and
+  `SEEDER_ADMIN_PASSWORD`, validating credentials before connecting, hashing the
+  password, and creating the user and profile in one transaction.
+- `GET /users` now returns active member users only and excludes admins before
+  cursor and limit are applied; `GET /users/{publicID}` still returns active
+  admins.
 
 ### Changed
 
