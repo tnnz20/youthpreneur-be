@@ -176,7 +176,7 @@ func (u userUsecase) CreateUser(ctx context.Context, input CreateUserInput) (ent
 	// six-digit space is effectively exhausted and we fail clearly instead of
 	// looping forever; see the public ID ceiling note on publicIDMax.
 	for range publicIDAttempts {
-		publicID, err := generatePublicID()
+		publicID, err := GeneratePublicID()
 		if err != nil {
 			return entity.User{}, fmt.Errorf("generate public id: %w", err)
 		}
@@ -278,7 +278,7 @@ func (u userUsecase) ChangePassword(
 	publicID string,
 	input ChangePasswordInput,
 ) error {
-	if err := validatePassword(input.NewPassword); err != nil {
+	if err := ValidatePassword(input.NewPassword); err != nil {
 		return err
 	}
 
@@ -314,7 +314,7 @@ func (u userUsecase) ChangePassword(
 // ResetPassword sets a new password for the active user matching publicID
 // without verifying the current one, then revokes that user's refresh sessions.
 func (u userUsecase) ResetPassword(ctx context.Context, publicID string, newPassword string) error {
-	if err := validatePassword(newPassword); err != nil {
+	if err := ValidatePassword(newPassword); err != nil {
 		return err
 	}
 
@@ -382,7 +382,7 @@ func validateCreateUser(email, password string, profile entity.Profile) error {
 	if err := ValidateEmail(email); err != nil {
 		return err
 	}
-	if err := validatePassword(password); err != nil {
+	if err := ValidatePassword(password); err != nil {
 		return err
 	}
 	if err := validateGender(profile.Gender); err != nil {
@@ -392,7 +392,10 @@ func validateCreateUser(email, password string, profile entity.Profile) error {
 	return nil
 }
 
-func validatePassword(password string) error {
+// ValidatePassword reports whether password satisfies the account password
+// policy. Trusted provisioning paths such as cmd/seeder share it so seeded
+// accounts obey the same rules as registration.
+func ValidatePassword(password string) error {
 	if len(password) < minPasswordLength {
 		return badRequest(fmt.Sprintf("password must be at least %d characters", minPasswordLength))
 	}
@@ -458,24 +461,10 @@ func ValidateEmail(email string) error {
 	return nil
 }
 
-// ValidatePassword reports whether password satisfies the account password
-// policy. Trusted provisioning paths such as cmd/seeder share it so seeded
-// accounts obey the same rules as registration.
-func ValidatePassword(password string) error {
-	return validatePassword(password)
-}
-
 // GeneratePublicID returns a YTP- prefixed identifier with six random decimal
 // digits drawn from crypto/rand. It is a lookup handle, not an authentication
 // credential; callers must not treat it as secret.
 func GeneratePublicID() (string, error) {
-	return generatePublicID()
-}
-
-// generatePublicID returns a YTP- prefixed identifier with six random decimal
-// digits drawn from crypto/rand. It is a lookup handle, not an authentication
-// credential; callers must not treat it as secret.
-func generatePublicID() (string, error) {
 	suffix, err := rand.Int(rand.Reader, big.NewInt(publicIDMax))
 	if err != nil {
 		return "", err

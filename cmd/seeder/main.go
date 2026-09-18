@@ -29,10 +29,13 @@ const (
 	publicIDAttempts = 5
 )
 
-// adminProfile holds the seeded admin profile defaults. Only full_name is set;
-// the optional profile fields stay empty, which the model accepts. These are
-// seed defaults, never request input.
-var adminProfile = entity.Profile{FullName: "System Administrator"}
+// newAdminProfile returns the seeded admin profile defaults. Only full_name is
+// set; the optional profile fields stay empty, which the model accepts. These
+// are seed defaults, never request input, so they are built fresh per call
+// rather than shared through mutable package state.
+func newAdminProfile() entity.Profile {
+	return entity.Profile{FullName: "System Administrator"}
+}
 
 // adminCreator is the subset of repository.UserRepository the seeder needs.
 // CreateUser inserts the user and profile in one transaction and maps unique
@@ -102,7 +105,7 @@ func seedAdmin(
 			return fmt.Errorf("generate public id: %w", err)
 		}
 
-		profile := adminProfile
+		profile := newAdminProfile()
 		user, err := repo.CreateUser(ctx, entity.User{
 			PublicID:  publicID,
 			Email:     email,

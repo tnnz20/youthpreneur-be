@@ -121,8 +121,8 @@ func TestSeedAdminCreatesActiveAdminWithDefaultProfile(t *testing.T) {
 	if user.CreatedAt != fixedNow().Unix() || user.UpdatedAt != user.CreatedAt {
 		t.Errorf("timestamps = (%d, %d), want equal fixed epoch", user.CreatedAt, user.UpdatedAt)
 	}
-	if user.Profile == nil || user.Profile.FullName != adminProfile.FullName {
-		t.Errorf("profile = %+v, want default full name %q", user.Profile, adminProfile.FullName)
+	if user.Profile == nil || user.Profile.FullName != newAdminProfile().FullName {
+		t.Errorf("profile = %+v, want default full name %q", user.Profile, newAdminProfile().FullName)
 	}
 	if user.Password == password {
 		t.Error("password was stored in plaintext")
