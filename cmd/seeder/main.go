@@ -1,6 +1,5 @@
-// Command seeder provisions the initial admin account from environment
-// variables. It is a trusted provisioning path: credentials come from the
-// process environment, never from request input.
+// Command seeder provisions the initial admin account from .env. It is a
+// trusted provisioning path: credentials never come from request input.
 package main
 
 import (
@@ -53,9 +52,10 @@ func main() {
 
 // run validates the seed credentials before opening the database, then creates
 // the admin. It returns an error and writes nothing to out on failure.
-func run(ctx context.Context, getenv func(string) string, out io.Writer, now func() time.Time) error {
-	email := usecase.NormalizeEmail(getenv(envAdminEmail))
-	password := getenv(envAdminPassword)
+func run(ctx context.Context, _ func(string) string, out io.Writer, now func() time.Time) error {
+	credentials := config.LoadSeederCredentials()
+	email := usecase.NormalizeEmail(credentials.AdminEmail)
+	password := credentials.AdminPassword
 
 	if email == "" {
 		return fmt.Errorf("%s is required", envAdminEmail)

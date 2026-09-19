@@ -32,6 +32,13 @@ type Config struct {
 	Auth            AuthConfig
 	CORS            CORSConfig
 	RateLimit       RateLimitConfig
+	Seeder          SeederConfig
+}
+
+// SeederConfig contains initial admin provisioning credentials.
+type SeederConfig struct {
+	AdminEmail    string
+	AdminPassword string
 }
 
 // PostgresConfig contains PostgreSQL connection settings.
@@ -107,84 +114,94 @@ const (
 	defaultGeneralRateLimit = 60
 )
 
-// Load reads application settings from environment variables and defaults.
+// LoadSeederCredentials reads seed credentials from the required `.env` file.
+func LoadSeederCredentials() SeederConfig {
+	v := viper.New()
+	v.SetConfigName(".env")
+	v.SetConfigType("env")
+	v.AddConfigPath(".")
+	if err := v.ReadInConfig(); err != nil {
+		panic(fmt.Errorf("read config file: %w", err))
+	}
+
+	return SeederConfig{
+		AdminEmail:    v.GetString("SEEDER_ADMIN_EMAIL"),
+		AdminPassword: v.GetString("SEEDER_ADMIN_PASSWORD"),
+	}
+}
+
+// Load reads application settings from the required `.env` file and defaults.
 func Load() Config {
 	v := viper.New()
 
-	v.SetDefault("app.addr", ":8080")
-	v.SetDefault("app.log_level", "info")
-	v.SetDefault("app.environment", "development")
-	v.SetDefault("app.version", "dev")
-	v.SetDefault("app.shutdown_timeout", defaultShutdownTimeout)
-	v.SetDefault("auth.access_token_ttl", defaultAccessTTL)
-	v.SetDefault("auth.refresh_token_ttl", defaultRefreshTTL)
-	v.SetDefault("cors.allowed_origins", defaultCORSOrigins)
-	v.SetDefault("rate_limit.login_per_minute", defaultLoginRateLimit)
-	v.SetDefault("rate_limit.refresh_per_minute", defaultRefreshRateLimit)
-	v.SetDefault("rate_limit.general_per_minute", defaultGeneralRateLimit)
-	v.SetDefault("postgres.host", "localhost")
-	v.SetDefault("postgres.port", 5432)
-	v.SetDefault("postgres.user", "postgres")
-	v.SetDefault("postgres.password", "postgres")
-	v.SetDefault("postgres.database", "youthpreneur")
-	v.SetDefault("postgres.sslmode", "disable")
+	v.SetConfigName(".env")
+	v.SetConfigType("env")
+	v.AddConfigPath(".")
 
-	v.SetEnvPrefix("APP")
-	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	if err := v.ReadInConfig(); err != nil {
+		var notFound viper.ConfigFileNotFoundError
+		if !errors.As(err, &notFound) {
+			panic(fmt.Errorf("read config file: %w", err))
+		}
+	}
+
+	v.SetDefault("APP_ADDR", ":8080")
+	v.SetDefault("APP_LOG_LEVEL", "info")
+	v.SetDefault("APP_ENV", "development")
+	v.SetDefault("APP_VERSION", "dev")
+	v.SetDefault("APP_SHUTDOWN_TIMEOUT", defaultShutdownTimeout)
+	v.SetDefault("APP_AUTH_ACCESS_TOKEN_TTL", defaultAccessTTL)
+	v.SetDefault("APP_AUTH_REFRESH_TOKEN_TTL", defaultRefreshTTL)
+	v.SetDefault("APP_CORS_ALLOWED_ORIGINS", defaultCORSOrigins)
+	v.SetDefault("APP_RATE_LIMIT_LOGIN_PER_MINUTE", defaultLoginRateLimit)
+	v.SetDefault("APP_RATE_LIMIT_REFRESH_PER_MINUTE", defaultRefreshRateLimit)
+	v.SetDefault("APP_RATE_LIMIT_GENERAL_PER_MINUTE", defaultGeneralRateLimit)
+	v.SetDefault("POSTGRES_HOST", "localhost")
+	v.SetDefault("POSTGRES_PORT", 5432)
+	v.SetDefault("POSTGRES_USER", "postgres")
+	v.SetDefault("POSTGRES_PASSWORD", "postgres")
+	v.SetDefault("POSTGRES_DB", "youthpreneur")
+	v.SetDefault("POSTGRES_SSLMODE", "disable")
+
 	v.AutomaticEnv()
 
-	v.MustBindEnv("app.addr", "APP_ADDR")
-	v.MustBindEnv("app.log_level", "APP_LOG_LEVEL")
-	v.MustBindEnv("app.environment", "APP_ENV")
-	v.MustBindEnv("app.version", "APP_VERSION")
-	v.MustBindEnv("app.shutdown_timeout", "APP_SHUTDOWN_TIMEOUT")
-	v.MustBindEnv("auth.secret", "APP_AUTH_SECRET")
-	v.MustBindEnv("auth.access_token_ttl", "APP_AUTH_ACCESS_TOKEN_TTL")
-	v.MustBindEnv("auth.refresh_token_ttl", "APP_AUTH_REFRESH_TOKEN_TTL")
-	v.MustBindEnv("cors.allowed_origins", "APP_CORS_ALLOWED_ORIGINS")
-	v.MustBindEnv("rate_limit.login_per_minute", "APP_RATE_LIMIT_LOGIN_PER_MINUTE")
-	v.MustBindEnv("rate_limit.refresh_per_minute", "APP_RATE_LIMIT_REFRESH_PER_MINUTE")
-	v.MustBindEnv("rate_limit.general_per_minute", "APP_RATE_LIMIT_GENERAL_PER_MINUTE")
-	v.MustBindEnv("postgres.host", "POSTGRES_HOST")
-	v.MustBindEnv("postgres.port", "POSTGRES_PORT")
-	v.MustBindEnv("postgres.user", "POSTGRES_USER")
-	v.MustBindEnv("postgres.password", "POSTGRES_PASSWORD")
-	v.MustBindEnv("postgres.database", "POSTGRES_DB")
-	v.MustBindEnv("postgres.sslmode", "POSTGRES_SSLMODE")
-
-	shutdownTimeout := v.GetDuration("app.shutdown_timeout")
+	shutdownTimeout := v.GetDuration("APP_SHUTDOWN_TIMEOUT")
 	if shutdownTimeout <= 0 {
 		shutdownTimeout = defaultShutdownTimeout
 	}
 
-	environment := v.GetString("app.environment")
-	origins := splitOrigins(v.GetString("cors.allowed_origins"))
+	environment := v.GetString("APP_ENV")
+	origins := splitOrigins(v.GetString("APP_CORS_ALLOWED_ORIGINS"))
 
 	return Config{
-		Addr:            v.GetString("app.addr"),
-		LogLevel:        v.GetString("app.log_level"),
+		Addr:            v.GetString("APP_ADDR"),
+		LogLevel:        v.GetString("APP_LOG_LEVEL"),
 		Environment:     environment,
-		Version:         v.GetString("app.version"),
+		Version:         v.GetString("APP_VERSION"),
 		ShutdownTimeout: shutdownTimeout,
 		SecureCookies:   environment == EnvironmentProduction,
 		Auth: AuthConfig{
-			Secret:          v.GetString("auth.secret"),
-			AccessTokenTTL:  v.GetDuration("auth.access_token_ttl"),
-			RefreshTokenTTL: v.GetDuration("auth.refresh_token_ttl"),
+			Secret:          v.GetString("APP_AUTH_SECRET"),
+			AccessTokenTTL:  v.GetDuration("APP_AUTH_ACCESS_TOKEN_TTL"),
+			RefreshTokenTTL: v.GetDuration("APP_AUTH_REFRESH_TOKEN_TTL"),
 		},
 		CORS: CORSConfig{AllowedOrigins: origins},
 		RateLimit: RateLimitConfig{
-			LoginPerMinute:   v.GetInt("rate_limit.login_per_minute"),
-			RefreshPerMinute: v.GetInt("rate_limit.refresh_per_minute"),
-			GeneralPerMinute: v.GetInt("rate_limit.general_per_minute"),
+			LoginPerMinute:   v.GetInt("APP_RATE_LIMIT_LOGIN_PER_MINUTE"),
+			RefreshPerMinute: v.GetInt("APP_RATE_LIMIT_REFRESH_PER_MINUTE"),
+			GeneralPerMinute: v.GetInt("APP_RATE_LIMIT_GENERAL_PER_MINUTE"),
+		},
+		Seeder: SeederConfig{
+			AdminEmail:    v.GetString("SEEDER_ADMIN_EMAIL"),
+			AdminPassword: v.GetString("SEEDER_ADMIN_PASSWORD"),
 		},
 		Postgres: PostgresConfig{
-			Host:     v.GetString("postgres.host"),
-			Port:     v.GetInt("postgres.port"),
-			User:     v.GetString("postgres.user"),
-			Password: v.GetString("postgres.password"),
-			Database: v.GetString("postgres.database"),
-			SSLMode:  v.GetString("postgres.sslmode"),
+			Host:     v.GetString("POSTGRES_HOST"),
+			Port:     v.GetInt("POSTGRES_PORT"),
+			User:     v.GetString("POSTGRES_USER"),
+			Password: v.GetString("POSTGRES_PASSWORD"),
+			Database: v.GetString("POSTGRES_DB"),
+			SSLMode:  v.GetString("POSTGRES_SSLMODE"),
 		},
 	}
 }

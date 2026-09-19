@@ -19,9 +19,9 @@
 
 ## Runtime Constraints
 
-- Configuration comes from Viper environment variables; copy `.env.example` to `.env`. Never commit `.env` or credentials.
+- Configuration comes from Viper and required `.env`; copy `.env.example` to `.env`. Never commit `.env` or credentials.
 - PostgreSQL timestamps are Unix epoch seconds in `BIGINT`; `birth_date` is `YYYY-MM-DD`.
-- User creation always assigns `member`; role is not accepted in create request. Admin provisioning requires a trusted database or admin flow, currently `cmd/seeder` driven by `SEEDER_ADMIN_EMAIL` and `SEEDER_ADMIN_PASSWORD`. The seeder reads the process environment only (no `.env` autoload), keeps user/profile creation transactional, and never logs the password or hash.
+- User creation always assigns `member`; role is not accepted in create request. Admin provisioning requires a trusted database or admin flow, currently `cmd/seeder` driven by `SEEDER_ADMIN_EMAIL` and `SEEDER_ADMIN_PASSWORD`. The seeder reads `SEEDER_ADMIN_EMAIL` and `SEEDER_ADMIN_PASSWORD` from required `.env` only, ignores process environment overrides for these credentials, keeps user/profile creation transactional, and never logs the password or hash.
 - `GET /users` lists active member users only and excludes admins before cursor and limit are applied. `GET /users/{publicID}` may return an active admin.
 - Public IDs use `YTP-` plus six digits and are lookup handles, not secrets.
 - User/profile deletion is soft delete and updates both rows in one transaction.

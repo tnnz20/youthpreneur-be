@@ -83,9 +83,8 @@ make seed
 ```
 
 Both `SEEDER_ADMIN_EMAIL` and `SEEDER_ADMIN_PASSWORD` are required; a missing,
-empty, or invalid value fails before the database is touched. The seeder reads
-the process environment only; a `.env` file is not loaded automatically, so
-export the variables or pass them on the command line. The seeded profile
+empty, or invalid value fails before the database is touched. The seeder loads credentials from `.env` with Viper; `SEEDER_ADMIN_EMAIL`
+and `SEEDER_ADMIN_PASSWORD` process environment variables are ignored. The seeded profile
 uses the default full name `System Administrator` and leaves the optional
 profile fields empty. The admin public ID uses the usual `YTP-` plus six digits
 format. Re-running with an email that already exists fails with "already

@@ -2,9 +2,82 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
+
+// isolateConfig runs the test from an empty temporary directory so a developer
+// `.env` in the repository root is never read, and clears known keys so the
+// process environment cannot leak between tests.
+func isolateConfig(t *testing.T) {
+	t.Helper()
+
+	t.Chdir(t.TempDir())
+	if err := os.WriteFile(".env", []byte("APP_ENV=development\n"), 0o600); err != nil {
+		t.Fatalf("write .env: %v", err)
+	}
+	for _, key := range []string{
+		"APP_ADDR",
+		"APP_LOG_LEVEL",
+		"APP_ENV",
+		"APP_VERSION",
+		"APP_SHUTDOWN_TIMEOUT",
+		"APP_AUTH_SECRET",
+		"APP_AUTH_ACCESS_TOKEN_TTL",
+		"APP_AUTH_REFRESH_TOKEN_TTL",
+		"APP_CORS_ALLOWED_ORIGINS",
+		"APP_RATE_LIMIT_LOGIN_PER_MINUTE",
+		"APP_RATE_LIMIT_REFRESH_PER_MINUTE",
+		"APP_RATE_LIMIT_GENERAL_PER_MINUTE",
+		"POSTGRES_HOST",
+		"POSTGRES_PORT",
+		"POSTGRES_USER",
+		"POSTGRES_PASSWORD",
+		"POSTGRES_DB",
+		"POSTGRES_SSLMODE",
+	} {
+		t.Setenv(key, "")
+		os.Unsetenv(key)
+	}
+}
+
+func TestLoadUsesEnvironmentOverrides(t *testing.T) {
+	isolateConfig(t)
+	t.Setenv("APP_AUTH_SECRET", "a-strong-secret-value-that-is-long-enough")
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("POSTGRES_HOST", "db.internal")
+
+	cfg := Load()
+
+	if cfg.Auth.Secret != "a-strong-secret-value-that-is-long-enough" {
+		t.Errorf("secret = %q, want environment value", cfg.Auth.Secret)
+	}
+	if cfg.Environment != "production" {
+		t.Errorf("environment = %q, want %q", cfg.Environment, "production")
+	}
+	if cfg.Postgres.Host != "db.internal" {
+		t.Errorf("postgres host = %q, want %q", cfg.Postgres.Host, "db.internal")
+	}
+	if cfg.Addr != ":8080" {
+		t.Errorf("addr = %q, want default %q", cfg.Addr, ":8080")
+	}
+}
+
+func TestLoadRejectsMalformedDotEnv(t *testing.T) {
+	isolateConfig(t)
+	if err := os.WriteFile(filepath.Join(".", ".env"), []byte("APP_ADDR\n"), 0o600); err != nil {
+		t.Fatalf("write .env: %v", err)
+	}
+
+	defer func() {
+		if recover() == nil {
+			t.Error("Load() did not panic on malformed .env")
+		}
+	}()
+
+	Load()
+}
 
 func TestLoadDefaults(t *testing.T) {
 	for _, key := range []string{
