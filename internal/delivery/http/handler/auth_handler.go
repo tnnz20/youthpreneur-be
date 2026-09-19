@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/tnnz20/youthpreneur-be/internal/entity"
 	"github.com/tnnz20/youthpreneur-be/internal/model"
 	"github.com/tnnz20/youthpreneur-be/internal/usecase"
 )
@@ -19,18 +20,25 @@ const (
 	refreshTokenPath   = "/auth"
 )
 
-// AuthHandler serves login, refresh, and logout requests and manages auth
-// cookies. Token values are never logged.
+// AuthHandler serves login, refresh, logout, and current-identity requests and
+// manages auth cookies. Token values are never logged.
 type AuthHandler struct {
-	logger  *slog.Logger
-	useCase usecase.AuthUseCase
-	secure  bool
+	logger   *slog.Logger
+	useCase  usecase.AuthUseCase
+	identity IdentityFunc
+	secure   bool
 }
 
 // NewAuthHandler creates an auth handler. secureCookies controls the cookie
-// Secure flag and must be true only over HTTPS (APP_ENV=production).
-func NewAuthHandler(logger *slog.Logger, useCase usecase.AuthUseCase, secureCookies bool) *AuthHandler {
-	return &AuthHandler{logger: logger, useCase: useCase, secure: secureCookies}
+// Secure flag and must be true only over HTTPS (APP_ENV=production). identity
+// loads the current database user stored by the authentication middleware.
+func NewAuthHandler(
+	logger *slog.Logger,
+	useCase usecase.AuthUseCase,
+	identity IdentityFunc,
+	secureCookies bool,
+) *AuthHandler {
+	return &AuthHandler{logger: logger, useCase: useCase, identity: identity, secure: secureCookies}
 }
 
 // Login handles POST /auth/login.
@@ -51,6 +59,19 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	h.setAuthCookies(w, result.AuthTokens)
 	writeJSON(h.logger, w, http.StatusOK, toUserResponse(result.User))
+}
+
+// Me handles GET /auth/me. It returns the minimal safe shape of the identity
+// loaded by the Authenticate middleware from the current database row. The JWT
+// role claim is never consulted.
+func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
+	identity, ok := h.identity(r.Context())
+	if !ok {
+		WriteError(h.logger, w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	writeJSON(h.logger, w, http.StatusOK, toMeResponse(identity))
 }
 
 // Refresh handles POST /auth/refresh.
@@ -145,6 +166,22 @@ func (h *AuthHandler) writeUsecaseError(w http.ResponseWriter, err error) {
 		h.logger.Error("auth request failed", "error", err)
 		WriteError(h.logger, w, http.StatusInternalServerError, "internal server error")
 	}
+}
+
+// toMeResponse maps the current identity to the minimal GET /auth/me shape.
+// A nil profile serializes as JSON null.
+func toMeResponse(user entity.User) model.MeResponse {
+	response := model.MeResponse{
+		PublicID: user.PublicID,
+		Email:    user.Email,
+		Role:     string(user.Role),
+	}
+
+	if user.Profile != nil {
+		response.Profile = &model.MeProfileResponse{FullName: user.Profile.FullName}
+	}
+
+	return response
 }
 
 // maxAge converts an absolute expiry to cookie MaxAge seconds, clamped at zero.

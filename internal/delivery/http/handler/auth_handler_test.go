@@ -51,7 +51,7 @@ func (f *fakeAuthUseCase) Logout(_ context.Context, refreshToken string) error {
 
 func newAuthRouter(uc usecase.AuthUseCase, secure bool) *http.ServeMux {
 	mux := http.NewServeMux()
-	authHandler := handler.NewAuthHandler(slog.Default(), uc, secure)
+	authHandler := handler.NewAuthHandler(slog.Default(), uc, nil, secure)
 
 	mux.HandleFunc("POST /auth/login", authHandler.Login)
 	mux.HandleFunc("POST /auth/refresh", authHandler.Refresh)

@@ -3,9 +3,11 @@ package handler_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/tnnz20/youthpreneur-be/internal/delivery/http/middleware"
 	"github.com/tnnz20/youthpreneur-be/internal/delivery/http/route"
 	"github.com/tnnz20/youthpreneur-be/internal/entity"
+	"github.com/tnnz20/youthpreneur-be/internal/model"
 	"github.com/tnnz20/youthpreneur-be/internal/repository"
 	"github.com/tnnz20/youthpreneur-be/internal/token"
 	"github.com/tnnz20/youthpreneur-be/internal/usecase"
@@ -42,7 +45,7 @@ func newProtectedRouter(uc usecase.UserUseCase, parser routeParser, lookup route
 	route.NewRouter(route.Dependencies{
 		HealthHandler: handler.NewHealthHandler(slog.Default(), usecase.NewHealthUseCase(repository.NewHealthRepository())),
 		UserHandler:   handler.NewUserHandler(slog.Default(), uc),
-		AuthHandler:   handler.NewAuthHandler(slog.Default(), stubAuthUseCase{}, false),
+		AuthHandler:   handler.NewAuthHandler(slog.Default(), stubAuthUseCase{}, middleware.IdentityFromContext, false),
 		Authenticate:  auth.Authenticate,
 		RequireAdmin:  auth.RequireAdmin,
 		RequireSelf:   auth.RequireSelf,
@@ -145,6 +148,100 @@ func TestLogoutRequiresAuthentication(t *testing.T) {
 	}
 }
 
+func TestMeReturnsMinimalIdentityShape(t *testing.T) {
+	parser := routeParser{claims: token.AccessClaims{PublicID: "YTP-000001", Role: entity.RoleAdmin}}
+	lookup := routeLookup{user: entity.User{
+		PublicID:  "YTP-000001",
+		Email:     "jane@example.com",
+		Role:      entity.RoleMember,
+		IsActive:  true,
+		CreatedAt: 1700000000,
+		UpdatedAt: 1700000000,
+		Profile: &entity.Profile{
+			FullName: "Jane Doe",
+			District: "Bandung",
+			Phone:    "08123456789",
+		},
+	}}
+	mux := newProtectedRouter(&fakeUserUseCase{}, parser, lookup)
+
+	rec := serveWithCookie(t, mux, http.MethodGet, "/auth/me", "", "good")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body %s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var body struct {
+		PublicID  string `json:"public_id"`
+		Email     string `json:"email"`
+		Role      string `json:"role"`
+		IsActive  *bool  `json:"is_active"`
+		CreatedAt *int64 `json:"created_at"`
+		Profile   *struct {
+			FullName string `json:"full_name"`
+		} `json:"profile"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.PublicID != "YTP-000001" || body.Email != "jane@example.com" || body.Role != "member" {
+		t.Errorf("identity = %+v, want public ID, email, and database role", body)
+	}
+	if body.Profile == nil || body.Profile.FullName != "Jane Doe" {
+		t.Errorf("profile = %+v, want full_name Jane Doe", body.Profile)
+	}
+	if body.IsActive != nil || body.CreatedAt != nil {
+		t.Error("response leaked is_active or timestamp fields")
+	}
+	if strings.Contains(rec.Body.String(), "Bandung") || strings.Contains(rec.Body.String(), "08123456789") {
+		t.Error("response leaked non-essential profile fields")
+	}
+}
+
+func TestMeUsesDatabaseRoleNotJWTClaim(t *testing.T) {
+	parser := routeParser{claims: token.AccessClaims{PublicID: "YTP-000009", Role: entity.RoleAdmin}}
+	lookup := routeLookup{user: entity.User{PublicID: "YTP-000009", Role: entity.RoleMember, IsActive: true}}
+	mux := newProtectedRouter(&fakeUserUseCase{}, parser, lookup)
+
+	rec := serveWithCookie(t, mux, http.MethodGet, "/auth/me", "", "good")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var body model.MeResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.Role != string(entity.RoleMember) {
+		t.Errorf("role = %q, want member from database identity, not JWT claim", body.Role)
+	}
+}
+
+func TestMeSerializesMissingProfileAsNull(t *testing.T) {
+	parser := routeParser{claims: token.AccessClaims{PublicID: "YTP-000001", Role: entity.RoleMember}}
+	lookup := routeLookup{user: entity.User{PublicID: "YTP-000001", Role: entity.RoleMember, IsActive: true}}
+	mux := newProtectedRouter(&fakeUserUseCase{}, parser, lookup)
+
+	rec := serveWithCookie(t, mux, http.MethodGet, "/auth/me", "", "good")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), `"profile":null`) {
+		t.Errorf("body = %s, want profile null", rec.Body.String())
+	}
+}
+
+func TestMeRejectsMissingIdentity(t *testing.T) {
+	mux := newProtectedRouter(&fakeUserUseCase{}, routeParser{}, routeLookup{user: entity.User{IsActive: true}})
+
+	rec := serveWithCookie(t, mux, http.MethodGet, "/auth/me", "", "")
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+}
+
 func TestPublicRoutesRemainPublic(t *testing.T) {
 	mux := newProtectedRouter(&fakeUserUseCase{}, routeParser{}, routeLookup{})
 
@@ -167,7 +264,7 @@ func TestLoginRouteAppliesEndpointRateLimit(t *testing.T) {
 	route.NewRouter(route.Dependencies{
 		HealthHandler:  handler.NewHealthHandler(slog.Default(), usecase.NewHealthUseCase(repository.NewHealthRepository())),
 		UserHandler:    handler.NewUserHandler(slog.Default(), &fakeUserUseCase{}),
-		AuthHandler:    handler.NewAuthHandler(slog.Default(), authUseCase, false),
+		AuthHandler:    handler.NewAuthHandler(slog.Default(), authUseCase, middleware.IdentityFromContext, false),
 		Authenticate:   auth.Authenticate,
 		LoginRateLimit: middleware.NewRateLimiter(1, time.Minute).Middleware,
 	}).Register(mux)

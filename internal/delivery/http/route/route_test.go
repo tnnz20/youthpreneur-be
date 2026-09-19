@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/tnnz20/youthpreneur-be/internal/delivery/http/handler"
+	"github.com/tnnz20/youthpreneur-be/internal/delivery/http/middleware"
 	"github.com/tnnz20/youthpreneur-be/internal/delivery/http/route"
 	"github.com/tnnz20/youthpreneur-be/internal/repository"
 	"github.com/tnnz20/youthpreneur-be/internal/usecase"
@@ -30,7 +31,7 @@ func newTestRouter() *http.ServeMux {
 	route.NewRouter(route.Dependencies{
 		HealthHandler: handler.NewHealthHandler(slog.Default(), usecase.NewHealthUseCase(repository.NewHealthRepository())),
 		UserHandler:   handler.NewUserHandler(slog.Default(), stubUserUseCase{}),
-		AuthHandler:   handler.NewAuthHandler(slog.Default(), stubAuthUseCase{}, false),
+		AuthHandler:   handler.NewAuthHandler(slog.Default(), stubAuthUseCase{}, middleware.IdentityFromContext, false),
 	}).Register(mux)
 
 	return mux
@@ -54,5 +55,21 @@ func TestHealthz(t *testing.T) {
 	}
 	if body["status"] != "ok" {
 		t.Fatalf("status = %q, want %q", body["status"], "ok")
+	}
+}
+
+func TestAuthMeRouteRegistered(t *testing.T) {
+	mux := newTestRouter()
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code == http.StatusNotFound {
+		t.Fatalf("status = %d, want GET /auth/me to be registered", rec.Code)
+	}
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d without an authenticated identity", rec.Code, http.StatusUnauthorized)
 	}
 }

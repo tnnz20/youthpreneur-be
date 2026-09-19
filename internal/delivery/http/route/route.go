@@ -47,6 +47,7 @@ func (rt *Router) Register(mux *http.ServeMux) {
 	rt.register(mux, "POST /auth/refresh", []Middleware{rt.deps.RefreshRateLimit}, rt.deps.AuthHandler.Refresh)
 
 	rt.register(mux, "POST /auth/logout", []Middleware{rt.deps.Authenticate}, rt.deps.AuthHandler.Logout)
+	rt.register(mux, "GET /auth/me", []Middleware{rt.deps.Authenticate}, rt.deps.AuthHandler.Me)
 	rt.register(mux, "PUT /users/{publicID}/profile", []Middleware{rt.deps.Authenticate, rt.deps.RequireSelf}, rt.deps.UserHandler.UpdateProfile)
 	rt.register(mux, "PUT /users/{publicID}/password", []Middleware{rt.deps.Authenticate, rt.deps.RequireSelf}, rt.deps.UserHandler.ChangePassword)
 

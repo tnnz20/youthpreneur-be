@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/tnnz20/youthpreneur-be/internal/delivery/http/handler"
+	"github.com/tnnz20/youthpreneur-be/internal/delivery/http/middleware"
 	"github.com/tnnz20/youthpreneur-be/internal/delivery/http/route"
 	"github.com/tnnz20/youthpreneur-be/internal/entity"
 	"github.com/tnnz20/youthpreneur-be/internal/model"
@@ -73,7 +74,7 @@ func newTestRouter(uc usecase.UserUseCase) *http.ServeMux {
 	route.NewRouter(route.Dependencies{
 		HealthHandler: handler.NewHealthHandler(slog.Default(), usecase.NewHealthUseCase(repository.NewHealthRepository())),
 		UserHandler:   handler.NewUserHandler(slog.Default(), uc),
-		AuthHandler:   handler.NewAuthHandler(slog.Default(), stubAuthUseCase{}, false),
+		AuthHandler:   handler.NewAuthHandler(slog.Default(), stubAuthUseCase{}, middleware.IdentityFromContext, false),
 		Authenticate:  passthroughMiddleware,
 		RequireAdmin:  passthroughMiddleware,
 		RequireSelf:   passthroughMiddleware,
