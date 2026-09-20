@@ -15,14 +15,35 @@ The API uses cookie-based JWT authentication.
 - Cookie `Secure` is `true` only when `APP_ENV=production`; local HTTP
   development uses `Secure=false`.
 - `POST /auth/refresh` rotates the refresh token: the presented session is
-  revoked and a replacement is issued in one transaction. Reusing a rotated
-  token fails with `401` and revokes every refresh session for that user.
+  revoked and a replacement is issued in one transaction.
+- Every login starts a new refresh token family (`refresh_sessions.family_id`).
+  Rotation keeps the same family and stamps the consumed session with
+  `revocation_reason = 'rotated'`, a 10-second `grace_until`, and the replacement
+  token sealed with AES-256-GCM (key derived from `APP_AUTH_SECRET`). The raw
+  replacement is never stored in plaintext and never logged. `APP_AUTH_SECRET`
+  must remain stable across deployments: because the replacement is sealed with a
+  key derived from it, rotating the secret while a session is inside its 10-second
+  grace window makes that duplicate fail closed with `401` (never `500`), and the
+  client must log in again.
+- A duplicate `POST /auth/refresh` that presents the same old token within the
+  10-second grace window is treated as a client retry: it returns `204` with the
+  same replacement refresh token and a freshly issued access token. Repeated calls
+  never extend `grace_until`. The grace path is read-only; if its stored
+  replacement cannot be decrypted, the request fails with `401` like any other
+  invalid refresh token.
+- Reusing a rotated token after the grace window, or reusing a token revoked for
+  any non-rotation reason, is a replay: it fails with `401` and revokes only that
+  token's `family_id`. Other logins for the same user are unaffected.
 - Password change, admin password reset, and account deactivation revoke every
-  refresh session for the affected user.
+  refresh session for the affected user with a non-rotation reason and clear the
+  rotation grace metadata, so old tokens from those flows can never be redeemed
+  through the grace window.
 - Expired refresh sessions are deleted opportunistically during login and
   refresh; active sessions are never deleted.
 - `POST /auth/logout` revokes the presented refresh token and clears both
   cookies.
+- `GET /auth/me` returns the authenticated user's minimal identity from the
+  current database row.
 
 Protected requests authenticate with the `access_token` cookie; there is no
 bearer header. Passwords and token values never appear in responses or logs.
@@ -36,6 +57,7 @@ bearer header. Passwords and token values never appear in responses or logs.
 | `POST /auth/login` | Public |
 | `POST /auth/refresh` | Public, requires `refresh_token` cookie |
 | `POST /auth/logout` | Authenticated |
+| `GET /auth/me` | Authenticated |
 | `PUT /users/{publicID}/profile` | Authenticated; owner or admin |
 | `PUT /users/{publicID}/password` | Authenticated; owner or admin |
 | `GET /users` | Admin |
@@ -156,6 +178,17 @@ limited by client IP; the default is 10 requests per minute and
 
 **Response:** No body. Both auth cookies are replaced.
 
+Duplicate submissions inside the 10-second rotation grace window return the same
+replacement refresh token with a new access token, so a retried request cannot
+double-rotate. The grace deadline is fixed at the first rotation and is never
+extended by later calls. Reuse outside the window is a replay that revokes only
+the presented token's family and still returns `401`; other logins for the same
+user keep working. Unknown, expired, or otherwise invalid tokens remain `401`
+and cookie attributes are unchanged. A grace duplicate whose stored replacement
+cannot be decrypted (for example after an `APP_AUTH_SECRET` rotation) is treated
+as an invalid refresh token: `401`, not `500`. A duplicate that races a
+concurrent rotation may lose the atomic rotate and also receive `401`.
+
 **Status Code:** `204 No Content`
 
 **Errors:** `401 Unauthorized`, `429 Too Many Requests`,
@@ -181,9 +214,45 @@ Revoke the presented refresh token and clear both auth cookies.
 
 ---
 
+### 5. Current User
+
+Return the authenticated user's minimal identity and full name.
+
+**Endpoint:** `GET /auth/me`
+
+**Authentication:** Authenticated (`access_token` cookie required). The
+response is derived from the current database row loaded by the authentication
+middleware, so the role reflects the stored account role rather than the JWT
+role claim.
+
+**Request:** No body and no query parameters.
+
+**Response:**
+
+```json
+{
+  "public_id": "YTP-000123",
+  "email": "user@example.com",
+  "role": "member",
+  "profile": {
+    "full_name": "Jane Doe"
+  }
+}
+```
+
+`profile` is `null` when the user has no profile. The response deliberately
+omits `is_active`, timestamps, password hashes, tokens, and other profile
+fields.
+
+**Status Code:** `200 OK`
+
+**Errors:** `401 Unauthorized`, `500 Internal Server Error`
+
+---
+
 ## User Endpoints
 
-### 5. Create User
+### 6. Create User
 
 Create a user and its profile.
 
@@ -256,7 +325,7 @@ to 72 bytes. `birth_date` must use `YYYY-MM-DD` and cannot be in the future.
 
 ---
 
-### 6. List Users
+### 7. List Users
 
 List active member users with optional profile filters and cursor pagination.
 Admin accounts are excluded. To retrieve a specific admin, use
@@ -314,7 +383,7 @@ stream cover member users only.
 
 ---
 
-### 7. Get User
+### 8. Get User
 
 Retrieve one active user and profile by public ID. Unlike `GET /users`, direct
 lookup may return an active admin account.
@@ -354,7 +423,7 @@ lookup may return an active admin account.
 
 ---
 
-### 8. Soft Delete User
+### 9. Soft Delete User
 
 Soft delete a user and its profile in one database transaction.
 
@@ -373,7 +442,7 @@ cannot authenticate.
 
 ---
 
-### 9. Update User Profile
+### 10. Update User Profile
 
 Replace profile fields for an active user. Omitted fields are cleared.
 
@@ -436,7 +505,7 @@ Replace profile fields for an active user. Omitted fields are cleared.
 
 ---
 
-### 10. Update User Status
+### 11. Update User Status
 
 Set whether an active user account is active.
 
@@ -482,7 +551,7 @@ Set whether an active user account is active.
 
 ---
 
-### 11. Change Password
+### 12. Change Password
 
 Change password when the current password is known.
 
@@ -519,7 +588,7 @@ refresh session for the user.
 
 ---
 
-### 12. Reset Password
+### 13. Reset Password
 
 Set a password without the current password.
 
@@ -588,7 +657,7 @@ serialized as JSON `null` when unset.
 
 ---
 
-### 13. Create Enterprise
+### 14. Create Enterprise
 
 Create an enterprise owned by the authenticated user.
 
@@ -667,7 +736,7 @@ The owner is the authenticated user and the initial `status` is always
 
 ---
 
-### 14. List Enterprises
+### 15. List Enterprises
 
 List active enterprises with optional filters and cursor pagination.
 
@@ -732,7 +801,7 @@ returned by the server and must not construct cursors.
 
 ---
 
-### 15. Get Enterprise
+### 16. Get Enterprise
 
 Retrieve one active enterprise by public ID.
 
@@ -751,7 +820,7 @@ an enterprise they do not own.
 
 ---
 
-### 16. Update Enterprise
+### 17. Update Enterprise
 
 Partially update an active enterprise. Omitted fields keep their current value.
 
@@ -789,7 +858,7 @@ The response is the updated enterprise object.
 
 ---
 
-### 17. Soft Delete Enterprise
+### 18. Soft Delete Enterprise
 
 Soft delete an active enterprise and record an audit event.
 
@@ -831,7 +900,7 @@ the catalog row with `SELECT ... FOR UPDATE`, then counts active enrollments so
 
 ---
 
-### 18. List Training Catalog
+### 19. List Training Catalog
 
 List active catalog entries with optional filters and cursor pagination.
 
@@ -885,7 +954,7 @@ the returned value and must not construct cursors.
 
 ---
 
-### 19. Get Training Catalog
+### 20. Get Training Catalog
 
 Retrieve one active catalog entry by public ID.
 
@@ -902,7 +971,7 @@ serialize as JSON `null` when unset.
 
 ---
 
-### 20. Create Training Catalog
+### 21. Create Training Catalog
 
 Create a catalog entry.
 
@@ -934,7 +1003,7 @@ Create a catalog entry.
 
 ---
 
-### 21. Update Training Catalog
+### 22. Update Training Catalog
 
 Partially update an active catalog entry. Omitted fields keep their current
 value; an empty string clears a nullable string field. `training_date` may be
@@ -957,7 +1026,7 @@ supplied, must be positive. At least one field is required.
 
 ---
 
-### 22. Update Training Catalog Status
+### 23. Update Training Catalog Status
 
 Change only the training status of an active catalog entry.
 
@@ -980,7 +1049,7 @@ Change only the training status of an active catalog entry.
 
 ---
 
-### 23. Soft Delete Training Catalog
+### 24. Soft Delete Training Catalog
 
 Soft delete an active catalog entry.
 
@@ -999,7 +1068,7 @@ enrollments are retained.
 
 ---
 
-### 24. Enroll in Training
+### 25. Enroll in Training
 
 Enroll the authenticated user in a catalog offering.
 
@@ -1051,7 +1120,7 @@ soft deleted.
 
 ---
 
-### 25. Cancel Training Enrollment
+### 26. Cancel Training Enrollment
 
 Cancel the caller's active enrollment.
 
@@ -1070,7 +1139,7 @@ enroll again afterward.
 
 ---
 
-### 26. My Training Enrollment History
+### 27. My Training Enrollment History
 
 List the current user's enrollment history, including cancelled enrollments.
 
@@ -1108,7 +1177,7 @@ List the current user's enrollment history, including cancelled enrollments.
 
 ---
 
-### 27. All Training Enrollment History
+### 28. All Training Enrollment History
 
 List every user's enrollment history, including cancelled enrollments.
 
@@ -1127,7 +1196,7 @@ List every user's enrollment history, including cancelled enrollments.
 
 ---
 
-### 28. Catalog Training Enrollment History
+### 29. Catalog Training Enrollment History
 
 List one catalog's enrollment history, including cancelled enrollments.
 
@@ -1181,7 +1250,12 @@ Request bodies are limited to 1 MiB. Unknown JSON fields are currently ignored.
 - User, profile, and enterprise primary keys are internal `SERIAL` integers.
 - Public IDs use `YTP-DDDDDD`; they are lookup handles, not secrets or auth tokens.
 - Password hashes are stored in `users.password` and never serialized.
-- Refresh sessions store only SHA-256 token hashes plus expiry and revoke state.
+- Refresh sessions store only SHA-256 token hashes plus expiry, revoke state, a
+  `family_id`, a `revocation_reason`, and — only during the 10-second rotation
+  grace window — a `grace_until` deadline and the AES-256-GCM sealed replacement
+  token. Raw refresh tokens are never stored or logged. Security revocations
+  clear the grace deadline and sealed replacement. `replaced_by_hash` is retained
+  for schema compatibility but no longer drives replay decisions.
 - Enterprise turnover uses `DECIMAL(15,2)` and is serialized as a JSON string.
 - Enterprise ownership is one-to-many: one user owns many enterprises, and
   `enterprises.user_id` is always server-derived from the authenticated user.

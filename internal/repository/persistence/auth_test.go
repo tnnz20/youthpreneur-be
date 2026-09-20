@@ -59,9 +59,13 @@ func TestRefreshSessionRepositoryIntegration(t *testing.T) {
 	repo := NewRefreshSessionRepository(db)
 	oldHash := fmt.Sprintf("old-%d", suffix)
 	newHash := fmt.Sprintf("new-%d", suffix)
+	familyID := fmt.Sprintf("11111111-1111-4111-8111-%012d", suffix%1000000000000)
+	otherFamilyID := fmt.Sprintf("22222222-2222-4222-8222-%012d", suffix%1000000000000)
+	graceUntil := now + 10
 
 	if err := repo.CreateRefreshSession(ctx, entity.RefreshSession{
 		UserID:    user.ID,
+		FamilyID:  familyID,
 		TokenHash: oldHash,
 		ExpiresAt: now + 3600,
 		CreatedAt: now,
@@ -76,12 +80,19 @@ func TestRefreshSessionRepositoryIntegration(t *testing.T) {
 	if found.UserID != user.ID || found.ExpiresAt != now+3600 {
 		t.Errorf("FindRefreshSession() = %+v, want persisted session", found)
 	}
+	if found.FamilyID != familyID {
+		t.Errorf("family id = %q, want %q", found.FamilyID, familyID)
+	}
 
+	replacementEnc := []byte{0x01, 0x02, 0x03, 0x04}
 	consumed, err := repo.RotateRefreshSession(ctx, oldHash, entity.RefreshSession{
-		UserID:    user.ID,
-		TokenHash: newHash,
-		ExpiresAt: now + 7200,
-		CreatedAt: now + 1,
+		UserID:              user.ID,
+		FamilyID:            familyID,
+		TokenHash:           newHash,
+		ExpiresAt:           now + 7200,
+		CreatedAt:           now + 1,
+		GraceUntil:          &graceUntil,
+		ReplacementTokenEnc: replacementEnc,
 	}, now+1)
 	if err != nil {
 		t.Fatalf("RotateRefreshSession() error = %v", err)
@@ -91,6 +102,12 @@ func TestRefreshSessionRepositoryIntegration(t *testing.T) {
 	}
 	if consumed.RevokedAt == nil || *consumed.RevokedAt != now+1 {
 		t.Errorf("revoked at = %v, want %d", consumed.RevokedAt, now+1)
+	}
+	if consumed.RevocationReason != entity.ReasonRotated {
+		t.Errorf("revocation reason = %q, want %q", consumed.RevocationReason, entity.ReasonRotated)
+	}
+	if consumed.GraceUntil == nil || *consumed.GraceUntil != graceUntil {
+		t.Errorf("grace until = %v, want %d", consumed.GraceUntil, graceUntil)
 	}
 
 	if _, err := repo.FindRefreshSession(ctx, newHash); err != nil {
@@ -102,6 +119,33 @@ func TestRefreshSessionRepositoryIntegration(t *testing.T) {
 	}
 	if revoked.RevokedAt == nil {
 		t.Error("old session revoked_at = nil, want revoke timestamp")
+	}
+	if revoked.RevocationReason != entity.ReasonRotated {
+		t.Errorf("persisted revocation reason = %q, want %q", revoked.RevocationReason, entity.ReasonRotated)
+	}
+	if revoked.GraceUntil == nil || *revoked.GraceUntil != graceUntil {
+		t.Errorf("persisted grace until = %v, want %d", revoked.GraceUntil, graceUntil)
+	}
+	if string(revoked.ReplacementTokenEnc) != string(replacementEnc) {
+		t.Errorf("persisted replacement = %v, want %v", revoked.ReplacementTokenEnc, replacementEnc)
+	}
+
+	// A second family in the same user must survive a family-scoped revoke.
+	otherHash := fmt.Sprintf("other-%d", suffix)
+	if err := repo.CreateRefreshSession(ctx, entity.RefreshSession{
+		UserID:    user.ID,
+		FamilyID:  otherFamilyID,
+		TokenHash: otherHash,
+		ExpiresAt: now + 3600,
+		CreatedAt: now,
+	}); err != nil {
+		t.Fatalf("CreateRefreshSession(other) error = %v", err)
+	}
+	if err := repo.RevokeRefreshSessionFamily(ctx, familyID, entity.ReasonReplay, now+5); err != nil {
+		t.Fatalf("RevokeRefreshSessionFamily() error = %v", err)
+	}
+	if kept, err := repo.FindRefreshSession(ctx, otherHash); err != nil || kept.RevokedAt != nil {
+		t.Errorf("other family session = %+v (err %v), want untouched", kept, err)
 	}
 
 	if _, err := repo.RotateRefreshSession(ctx, oldHash, entity.RefreshSession{
@@ -117,10 +161,40 @@ func TestRefreshSessionRepositoryIntegration(t *testing.T) {
 		t.Errorf("missing find error = %v, want ErrRefreshSessionNotFound", err)
 	}
 
-	if err := repo.RevokeRefreshSession(ctx, newHash, now+3); err != nil {
+	// Rollback: a rotate whose replacement hash already exists must fail and
+	// leave the presented session active, proving the revoke and insert are one
+	// transaction.
+	rollbackOld := fmt.Sprintf("rollback-old-%d", suffix)
+	rollbackGrace := now + 10
+	if err := repo.CreateRefreshSession(ctx, entity.RefreshSession{
+		UserID:    user.ID,
+		FamilyID:  familyID,
+		TokenHash: rollbackOld,
+		ExpiresAt: now + 3600,
+		CreatedAt: now,
+	}); err != nil {
+		t.Fatalf("CreateRefreshSession(rollback) error = %v", err)
+	}
+	if _, err := repo.RotateRefreshSession(ctx, rollbackOld, entity.RefreshSession{
+		UserID:     user.ID,
+		FamilyID:   familyID,
+		TokenHash:  newHash,
+		ExpiresAt:  now + 7200,
+		CreatedAt:  now + 1,
+		GraceUntil: &rollbackGrace,
+	}, now+1); err == nil {
+		t.Fatal("RotateRefreshSession() error = nil, want duplicate replacement failure")
+	}
+	if survivor, err := repo.FindRefreshSession(ctx, rollbackOld); err != nil {
+		t.Fatalf("FindRefreshSession(rollback) error = %v", err)
+	} else if survivor.RevokedAt != nil {
+		t.Error("failed rotate revoked the presented session instead of rolling back")
+	}
+
+	if err := repo.RevokeRefreshSession(ctx, newHash, entity.ReasonLogout, now+3); err != nil {
 		t.Fatalf("RevokeRefreshSession() error = %v", err)
 	}
-	if err := repo.RevokeRefreshSession(ctx, newHash, now+4); err != nil {
+	if err := repo.RevokeRefreshSession(ctx, newHash, entity.ReasonLogout, now+4); err != nil {
 		t.Fatalf("second RevokeRefreshSession() error = %v", err)
 	}
 
@@ -132,7 +206,7 @@ func TestRefreshSessionRepositoryIntegration(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("CreateRefreshSession(extra) error = %v", err)
 	}
-	if err := repo.RevokeUserRefreshSessions(ctx, user.ID, now+6); err != nil {
+	if err := repo.RevokeUserRefreshSessions(ctx, user.ID, entity.ReasonPasswordChange, now+6); err != nil {
 		t.Fatalf("RevokeUserRefreshSessions() error = %v", err)
 	}
 
@@ -164,7 +238,7 @@ func TestRefreshSessionRepositoryIntegration(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("CreateRefreshSession(revoked) error = %v", err)
 	}
-	if err := repo.RevokeRefreshSession(ctx, revokedHash, now+8); err != nil {
+	if err := repo.RevokeRefreshSession(ctx, revokedHash, entity.ReasonLogout, now+8); err != nil {
 		t.Fatalf("RevokeRefreshSession(revoked) error = %v", err)
 	}
 

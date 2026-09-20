@@ -3,6 +3,8 @@
 package token
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -100,4 +102,62 @@ func (s *Service) HashRefresh(raw string) string {
 	sum := sha256.Sum256([]byte(raw))
 
 	return hex.EncodeToString(sum[:])
+}
+
+// EncryptRefresh seals raw with AES-256-GCM and returns nonce||ciphertext. The
+// key is derived from the auth secret, so no separate key material is required.
+// The result is only ever stored to serve the rotation grace window; it is never
+// logged.
+func (s *Service) EncryptRefresh(raw string) ([]byte, error) {
+	gcm, err := s.refreshCipher()
+	if err != nil {
+		return nil, err
+	}
+
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, fmt.Errorf("generate refresh nonce: %w", err)
+	}
+
+	return gcm.Seal(nonce, nonce, []byte(raw), nil), nil
+}
+
+// DecryptRefresh opens ciphertext produced by EncryptRefresh. Authentication
+// failure, truncation, or a key mismatch returns an error instead of plaintext.
+func (s *Service) DecryptRefresh(ciphertext []byte) (string, error) {
+	gcm, err := s.refreshCipher()
+	if err != nil {
+		return "", err
+	}
+
+	nonceSize := gcm.NonceSize()
+	if len(ciphertext) < nonceSize {
+		return "", errors.New("token: refresh ciphertext too short")
+	}
+
+	plaintext, err := gcm.Open(nil, ciphertext[:nonceSize], ciphertext[nonceSize:], nil)
+	if err != nil {
+		return "", fmt.Errorf("decrypt refresh token: %w", err)
+	}
+
+	return string(plaintext), nil
+}
+
+// refreshCipher builds the AES-256-GCM AEAD used for grace-window storage. The
+// key is the SHA-256 digest of the auth secret, which is validated non-empty at
+// startup, so no secret is hardcoded here.
+func (s *Service) refreshCipher() (cipher.AEAD, error) {
+	key := sha256.Sum256(s.secret)
+
+	block, err := aes.NewCipher(key[:])
+	if err != nil {
+		return nil, fmt.Errorf("create refresh cipher: %w", err)
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("create refresh GCM: %w", err)
+	}
+
+	return gcm, nil
 }

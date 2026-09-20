@@ -263,7 +263,7 @@ func (u userUsecase) UpdateStatus(
 	}
 
 	if !isActive {
-		if err := u.revokeUserSessions(ctx, user.ID); err != nil {
+		if err := u.revokeUserSessions(ctx, user.ID, entity.ReasonDeactivated); err != nil {
 			return entity.User{}, err
 		}
 	}
@@ -308,7 +308,7 @@ func (u userUsecase) ChangePassword(
 		return mapRepositoryError(err)
 	}
 
-	return u.revokeUserSessions(ctx, user.ID)
+	return u.revokeUserSessions(ctx, user.ID, entity.ReasonPasswordChange)
 }
 
 // ResetPassword sets a new password for the active user matching publicID
@@ -332,13 +332,14 @@ func (u userUsecase) ResetPassword(ctx context.Context, publicID string, newPass
 		return mapRepositoryError(err)
 	}
 
-	return u.revokeUserSessions(ctx, user.ID)
+	return u.revokeUserSessions(ctx, user.ID, entity.ReasonAdminReset)
 }
 
-// revokeUserSessions revokes every active refresh session for userID. It wraps
-// the repository error so callers do not expose session internals.
-func (u userUsecase) revokeUserSessions(ctx context.Context, userID int) error {
-	if err := u.sessions.RevokeUserRefreshSessions(ctx, userID, u.now()); err != nil {
+// revokeUserSessions revokes every active refresh session for userID with the
+// given security reason. Security reasons never open a rotation grace window,
+// so an old token from these flows cannot be reused.
+func (u userUsecase) revokeUserSessions(ctx context.Context, userID int, reason string) error {
+	if err := u.sessions.RevokeUserRefreshSessions(ctx, userID, reason, u.now()); err != nil {
 		return fmt.Errorf("revoke user refresh sessions: %w", err)
 	}
 

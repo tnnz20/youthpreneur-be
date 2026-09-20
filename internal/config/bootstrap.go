@@ -67,7 +67,7 @@ func Bootstrap(ctx context.Context, cfg Config, logger *slog.Logger) (http.Handl
 		cfg.Auth.AccessTokenTTL,
 		cfg.Auth.RefreshTokenTTL,
 	)
-	authHandler := handler.NewAuthHandler(logger, authUsecase, cfg.SecureCookies)
+	authHandler := handler.NewAuthHandler(logger, authUsecase, middleware.IdentityFromContext, cfg.SecureCookies)
 
 	authenticator := middleware.NewAuthenticator(tokenService, userRepo, logger)
 

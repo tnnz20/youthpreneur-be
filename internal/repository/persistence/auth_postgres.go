@@ -11,7 +11,8 @@ import (
 )
 
 const refreshSessionColumns = `
-	id, user_id, token_hash, expires_at, created_at, revoked_at, replaced_by_hash`
+	id, user_id, family_id, token_hash, expires_at, created_at, revoked_at,
+	revocation_reason, grace_until, replacement_token_enc, replaced_by_hash`
 
 type refreshSessionRepository struct {
 	db *sql.DB
@@ -25,9 +26,10 @@ func NewRefreshSessionRepository(db *sql.DB) repository.RefreshSessionRepository
 
 func (r refreshSessionRepository) CreateRefreshSession(ctx context.Context, session entity.RefreshSession) error {
 	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO refresh_sessions (user_id, token_hash, expires_at, created_at)
-		VALUES ($1, $2, $3, $4)`,
+		INSERT INTO refresh_sessions (user_id, family_id, token_hash, expires_at, created_at)
+		VALUES ($1, $2, $3, $4, $5)`,
 		session.UserID,
+		session.FamilyID,
 		session.TokenHash,
 		session.ExpiresAt,
 		session.CreatedAt,
@@ -71,17 +73,25 @@ func (r refreshSessionRepository) RotateRefreshSession(
 	var (
 		id        int
 		userID    int
+		familyID  string
 		createdAt int64
 	)
 	err = tx.QueryRowContext(ctx, `
 		UPDATE refresh_sessions
-		SET revoked_at = $2, replaced_by_hash = $3
+		SET revoked_at = $2,
+		    revocation_reason = $3,
+		    grace_until = $4,
+		    replacement_token_enc = $5,
+		    replaced_by_hash = $6
 		WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > $2
-		RETURNING id, user_id, created_at`,
+		RETURNING id, user_id, family_id, created_at`,
 		oldTokenHash,
 		now,
+		entity.ReasonRotated,
+		next.GraceUntil,
+		next.ReplacementTokenEnc,
 		next.TokenHash,
-	).Scan(&id, &userID, &createdAt)
+	).Scan(&id, &userID, &familyID, &createdAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return entity.RefreshSession{}, repository.ErrRefreshSessionNotFound
 	}
@@ -90,9 +100,10 @@ func (r refreshSessionRepository) RotateRefreshSession(
 	}
 
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO refresh_sessions (user_id, token_hash, expires_at, created_at)
-		VALUES ($1, $2, $3, $4)`,
+		INSERT INTO refresh_sessions (user_id, family_id, token_hash, expires_at, created_at)
+		VALUES ($1, $2, $3, $4, $5)`,
 		userID,
+		familyID,
 		next.TokenHash,
 		next.ExpiresAt,
 		next.CreatedAt,
@@ -107,26 +118,33 @@ func (r refreshSessionRepository) RotateRefreshSession(
 	revokedAt := now
 
 	return entity.RefreshSession{
-		ID:             id,
-		UserID:         userID,
-		TokenHash:      oldTokenHash,
-		CreatedAt:      createdAt,
-		RevokedAt:      &revokedAt,
-		ReplacedByHash: next.TokenHash,
+		ID:                  id,
+		UserID:              userID,
+		FamilyID:            familyID,
+		TokenHash:           oldTokenHash,
+		CreatedAt:           createdAt,
+		RevokedAt:           &revokedAt,
+		RevocationReason:    entity.ReasonRotated,
+		GraceUntil:          next.GraceUntil,
+		ReplacementTokenEnc: next.ReplacementTokenEnc,
+		ReplacedByHash:      next.TokenHash,
 	}, nil
 }
 
 func (r refreshSessionRepository) RevokeRefreshSession(
 	ctx context.Context,
-	tokenHash string,
+	tokenHash, reason string,
 	revokedAt int64,
 ) error {
 	if _, err := r.db.ExecContext(ctx, `
 		UPDATE refresh_sessions
-		SET revoked_at = $2
-		WHERE token_hash = $1 AND revoked_at IS NULL`,
+		SET revoked_at = COALESCE(revoked_at, $2),
+		    revocation_reason = CASE WHEN revoked_at IS NULL THEN $3 ELSE revocation_reason END,
+		    grace_until = NULL, replacement_token_enc = NULL
+		WHERE token_hash = $1 AND (revoked_at IS NULL OR grace_until IS NOT NULL)`,
 		tokenHash,
 		revokedAt,
+		reason,
 	); err != nil {
 		return fmt.Errorf("revoke refresh session: %w", err)
 	}
@@ -137,16 +155,41 @@ func (r refreshSessionRepository) RevokeRefreshSession(
 func (r refreshSessionRepository) RevokeUserRefreshSessions(
 	ctx context.Context,
 	userID int,
+	reason string,
 	revokedAt int64,
 ) error {
 	if _, err := r.db.ExecContext(ctx, `
 		UPDATE refresh_sessions
-		SET revoked_at = $2
-		WHERE user_id = $1 AND revoked_at IS NULL`,
+		SET revoked_at = COALESCE(revoked_at, $2),
+		    revocation_reason = CASE WHEN revoked_at IS NULL THEN $3 ELSE revocation_reason END,
+		    grace_until = NULL, replacement_token_enc = NULL
+		WHERE user_id = $1 AND (revoked_at IS NULL OR grace_until IS NOT NULL)`,
 		userID,
 		revokedAt,
+		reason,
 	); err != nil {
 		return fmt.Errorf("revoke user refresh sessions: %w", err)
+	}
+
+	return nil
+}
+
+func (r refreshSessionRepository) RevokeRefreshSessionFamily(
+	ctx context.Context,
+	familyID, reason string,
+	revokedAt int64,
+) error {
+	if _, err := r.db.ExecContext(ctx, `
+		UPDATE refresh_sessions
+		SET revoked_at = COALESCE(revoked_at, $2),
+		    revocation_reason = CASE WHEN revoked_at IS NULL THEN $3 ELSE revocation_reason END,
+		    grace_until = NULL, replacement_token_enc = NULL
+		WHERE family_id = $1 AND (revoked_at IS NULL OR grace_until IS NOT NULL)`,
+		familyID,
+		revokedAt,
+		reason,
+	); err != nil {
+		return fmt.Errorf("revoke refresh session family: %w", err)
 	}
 
 	return nil
@@ -168,18 +211,25 @@ func (r refreshSessionRepository) DeleteExpiredRefreshSessions(ctx context.Conte
 // sql.Rows.Scan.
 func scanRefreshSession(scan func(dest ...any) error) (entity.RefreshSession, error) {
 	var (
-		session        entity.RefreshSession
-		revokedAt      sql.NullInt64
-		replacedByHash sql.NullString
+		session             entity.RefreshSession
+		revokedAt           sql.NullInt64
+		revocationReason    sql.NullString
+		graceUntil          sql.NullInt64
+		replacementTokenEnc []byte
+		replacedByHash      sql.NullString
 	)
 
 	if err := scan(
 		&session.ID,
 		&session.UserID,
+		&session.FamilyID,
 		&session.TokenHash,
 		&session.ExpiresAt,
 		&session.CreatedAt,
 		&revokedAt,
+		&revocationReason,
+		&graceUntil,
+		&replacementTokenEnc,
 		&replacedByHash,
 	); err != nil {
 		return entity.RefreshSession{}, err
@@ -188,6 +238,13 @@ func scanRefreshSession(scan func(dest ...any) error) (entity.RefreshSession, er
 	if revokedAt.Valid {
 		session.RevokedAt = &revokedAt.Int64
 	}
+	if revocationReason.Valid {
+		session.RevocationReason = revocationReason.String
+	}
+	if graceUntil.Valid {
+		session.GraceUntil = &graceUntil.Int64
+	}
+	session.ReplacementTokenEnc = replacementTokenEnc
 	if replacedByHash.Valid {
 		session.ReplacedByHash = replacedByHash.String
 	}

@@ -571,6 +571,9 @@ func TestChangePasswordRevokesRefreshSessions(t *testing.T) {
 	if sessions.revokeUserCallFor != 11 {
 		t.Errorf("revoked sessions for user %d, want 11", sessions.revokeUserCallFor)
 	}
+	if sessions.lastRevokedReason != entity.ReasonPasswordChange {
+		t.Errorf("revocation reason = %q, want %q", sessions.lastRevokedReason, entity.ReasonPasswordChange)
+	}
 }
 
 func TestResetPasswordRevokesRefreshSessions(t *testing.T) {
@@ -584,6 +587,9 @@ func TestResetPasswordRevokesRefreshSessions(t *testing.T) {
 	if sessions.revokeUserCallFor != 12 {
 		t.Errorf("revoked sessions for user %d, want 12", sessions.revokeUserCallFor)
 	}
+	if sessions.lastRevokedReason != entity.ReasonAdminReset {
+		t.Errorf("revocation reason = %q, want %q", sessions.lastRevokedReason, entity.ReasonAdminReset)
+	}
 }
 
 func TestUpdateStatusDeactivationRevokesRefreshSessions(t *testing.T) {
@@ -596,6 +602,9 @@ func TestUpdateStatusDeactivationRevokesRefreshSessions(t *testing.T) {
 	}
 	if sessions.revokeUserCallFor != 13 {
 		t.Errorf("revoked sessions for user %d, want 13", sessions.revokeUserCallFor)
+	}
+	if sessions.lastRevokedReason != entity.ReasonDeactivated {
+		t.Errorf("revocation reason = %q, want %q", sessions.lastRevokedReason, entity.ReasonDeactivated)
 	}
 }
 

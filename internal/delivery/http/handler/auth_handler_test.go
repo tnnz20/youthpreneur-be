@@ -51,7 +51,7 @@ func (f *fakeAuthUseCase) Logout(_ context.Context, refreshToken string) error {
 
 func newAuthRouter(uc usecase.AuthUseCase, secure bool) *http.ServeMux {
 	mux := http.NewServeMux()
-	authHandler := handler.NewAuthHandler(slog.Default(), uc, secure)
+	authHandler := handler.NewAuthHandler(slog.Default(), uc, nil, secure)
 
 	mux.HandleFunc("POST /auth/login", authHandler.Login)
 	mux.HandleFunc("POST /auth/refresh", authHandler.Refresh)
@@ -252,6 +252,51 @@ func TestRefreshRotatesCookies(t *testing.T) {
 	}
 	if cookies[handler.RefreshTokenCookie].Value != "new-refresh" {
 		t.Error("refresh cookie was not rotated")
+	}
+}
+
+func TestRefreshGraceDuplicateReturnsSameReplacementCookie(t *testing.T) {
+	replacement := usecase.AuthTokens{
+		AccessToken:      "access-grace",
+		RefreshToken:     "replacement-refresh",
+		AccessExpiresAt:  time.Now().Add(15 * time.Minute),
+		RefreshExpiresAt: time.Now().Add(7 * 24 * time.Hour),
+	}
+	uc := &fakeAuthUseCase{refreshResult: replacement}
+	mux := newAuthRouter(uc, true)
+
+	refresh := func() (*httptest.ResponseRecorder, map[string]*http.Cookie) {
+		req := httptest.NewRequest(http.MethodPost, "/auth/refresh", nil)
+		req.AddCookie(&http.Cookie{Name: handler.RefreshTokenCookie, Value: "old-refresh"})
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		return rec, cookiesByName(rec)
+	}
+
+	firstRec, firstCookies := refresh()
+	secondRec, secondCookies := refresh()
+
+	for _, rec := range []*httptest.ResponseRecorder{firstRec, secondRec} {
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("status = %d, want %d (body %s)", rec.Code, http.StatusNoContent, rec.Body.String())
+		}
+	}
+
+	first := firstCookies[handler.RefreshTokenCookie]
+	second := secondCookies[handler.RefreshTokenCookie]
+	if first == nil || second == nil {
+		t.Fatal("refresh_token cookie missing on grace duplicate")
+	}
+	if first.Value != "replacement-refresh" || second.Value != first.Value {
+		t.Errorf("refresh cookie values = %q, %q, want same replacement", first.Value, second.Value)
+	}
+	if first.Path != second.Path || first.HttpOnly != second.HttpOnly ||
+		first.SameSite != second.SameSite || first.Secure != second.Secure {
+		t.Errorf("grace duplicate changed refresh cookie attributes: %+v vs %+v", first, second)
+	}
+	if !first.Secure {
+		t.Error("refresh cookie Secure = false, want true in production")
 	}
 }
 
