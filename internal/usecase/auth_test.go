@@ -19,6 +19,8 @@ type fakeTokenService struct {
 	refreshSeq int
 	accessErr  error
 	refreshErr error
+	encryptErr error
+	decryptErr error
 }
 
 func (f *fakeTokenService) IssueAccess(_ entity.User, _ time.Time) (string, error) {
@@ -43,6 +45,27 @@ func (f *fakeTokenService) HashRefresh(raw string) string {
 	return "hash:" + raw
 }
 
+// EncryptRefresh reverses the raw token so tests can prove the stored value is
+// not plaintext while still round-tripping through DecryptRefresh.
+func (f *fakeTokenService) EncryptRefresh(raw string) ([]byte, error) {
+	if f.encryptErr != nil {
+		return nil, f.encryptErr
+	}
+
+	return []byte("enc:" + raw), nil
+}
+
+func (f *fakeTokenService) DecryptRefresh(ciphertext []byte) (string, error) {
+	if f.decryptErr != nil {
+		return "", f.decryptErr
+	}
+	if len(ciphertext) < 4 || string(ciphertext[:4]) != "enc:" {
+		return "", errors.New("fake: invalid ciphertext")
+	}
+
+	return string(ciphertext[4:]), nil
+}
+
 type fakeSessionRepository struct {
 	sessions map[string]entity.RefreshSession
 	nextID   int
@@ -51,13 +74,16 @@ type fakeSessionRepository struct {
 	rotateErr     error
 	revokeErr     error
 	revokeUserErr error
+	revokeFamErr  error
 	cleanupErr    error
 
 	lastCreated       entity.RefreshSession
 	lastRevokedHash   string
+	lastRevokedReason string
 	lastRevokedAt     int64
 	lastRotatedOld    string
 	lastRotatedNext   entity.RefreshSession
+	lastRevokedFamily string
 	revokeUserCallFor int
 	cleanupCalls      int
 }
@@ -108,6 +134,9 @@ func (f *fakeSessionRepository) RotateRefreshSession(
 
 	revokedAt := now
 	session.RevokedAt = &revokedAt
+	session.RevocationReason = entity.ReasonRotated
+	session.GraceUntil = next.GraceUntil
+	session.ReplacementTokenEnc = next.ReplacementTokenEnc
 	session.ReplacedByHash = next.TokenHash
 	f.sessions[oldTokenHash] = session
 
@@ -115,36 +144,65 @@ func (f *fakeSessionRepository) RotateRefreshSession(
 	f.nextID++
 	created.ID = f.nextID
 	created.UserID = session.UserID
+	created.FamilyID = session.FamilyID
+	created.RevokedAt = nil
+	created.RevocationReason = ""
+	created.GraceUntil = nil
+	created.ReplacementTokenEnc = nil
+	created.ReplacedByHash = ""
 	f.sessions[created.TokenHash] = created
 
 	return session, nil
 }
 
-func (f *fakeSessionRepository) RevokeRefreshSession(_ context.Context, tokenHash string, revokedAt int64) error {
+func (f *fakeSessionRepository) RevokeRefreshSession(_ context.Context, tokenHash, reason string, revokedAt int64) error {
 	if f.revokeErr != nil {
 		return f.revokeErr
 	}
 
 	f.lastRevokedHash = tokenHash
+	f.lastRevokedReason = reason
 	f.lastRevokedAt = revokedAt
 	if session, ok := f.sessions[tokenHash]; ok && session.RevokedAt == nil {
-		session.RevokedAt = &revokedAt
+		revoked := revokedAt
+		session.RevokedAt = &revoked
+		session.RevocationReason = reason
 		f.sessions[tokenHash] = session
 	}
 
 	return nil
 }
 
-func (f *fakeSessionRepository) RevokeUserRefreshSessions(_ context.Context, userID int, revokedAt int64) error {
+func (f *fakeSessionRepository) RevokeUserRefreshSessions(_ context.Context, userID int, reason string, revokedAt int64) error {
 	if f.revokeUserErr != nil {
 		return f.revokeUserErr
 	}
 
 	f.revokeUserCallFor = userID
+	f.lastRevokedReason = reason
 	for hash, session := range f.sessions {
 		if session.UserID == userID && session.RevokedAt == nil {
 			revoked := revokedAt
 			session.RevokedAt = &revoked
+			session.RevocationReason = reason
+			f.sessions[hash] = session
+		}
+	}
+
+	return nil
+}
+
+func (f *fakeSessionRepository) RevokeRefreshSessionFamily(_ context.Context, familyID, reason string, revokedAt int64) error {
+	if f.revokeFamErr != nil {
+		return f.revokeFamErr
+	}
+
+	f.lastRevokedFamily = familyID
+	for hash, session := range f.sessions {
+		if session.FamilyID == familyID && session.RevokedAt == nil {
+			revoked := revokedAt
+			session.RevokedAt = &revoked
+			session.RevocationReason = reason
 			f.sessions[hash] = session
 		}
 	}
@@ -281,14 +339,17 @@ func TestRefreshRotatesSessionAndIssuesNewTokens(t *testing.T) {
 	user := entity.User{ID: 3, PublicID: "YTP-000003", Role: entity.RoleMember, IsActive: true}
 	repo := &fakeUserRepository{findUser: user}
 	sessions := newFakeSessionRepository()
-	uc, tokens := newAuthUseCase(t, repo, sessions)
+
+	clock := time.Now()
+	uc, tokens := newGraceUsecase(t, repo, sessions, func() time.Time { return clock })
 
 	rawOld := "refresh-old"
 	if err := sessions.CreateRefreshSession(context.Background(), entity.RefreshSession{
 		UserID:    user.ID,
+		FamilyID:  "family-1",
 		TokenHash: tokens.HashRefresh(rawOld),
-		ExpiresAt: time.Now().Add(time.Hour).Unix(),
-		CreatedAt: time.Now().Unix(),
+		ExpiresAt: clock.Add(time.Hour).Unix(),
+		CreatedAt: clock.Unix(),
 	}); err != nil {
 		t.Fatalf("seed session: %v", err)
 	}
@@ -310,6 +371,8 @@ func TestRefreshRotatesSessionAndIssuesNewTokens(t *testing.T) {
 		t.Errorf("rotated next hash = %q, want hash of returned token", sessions.lastRotatedNext.TokenHash)
 	}
 
+	// Outside the grace window the old token is a replay.
+	clock = clock.Add(11 * time.Second)
 	if _, err := uc.Refresh(context.Background(), rawOld); !errors.Is(err, usecase.ErrInvalidRefreshToken) {
 		t.Fatalf("replayed Refresh() error = %v, want ErrInvalidRefreshToken", err)
 	}
@@ -449,14 +512,17 @@ func TestRefreshReplayRevokesSessionFamily(t *testing.T) {
 	user := entity.User{ID: 3, PublicID: "YTP-000003", Role: entity.RoleMember, IsActive: true}
 	repo := &fakeUserRepository{findUser: user}
 	sessions := newFakeSessionRepository()
-	uc, tokens := newAuthUseCase(t, repo, sessions)
+
+	clock := time.Now()
+	uc, tokens := newGraceUsecase(t, repo, sessions, func() time.Time { return clock })
 
 	rawOld := "refresh-old"
 	if err := sessions.CreateRefreshSession(context.Background(), entity.RefreshSession{
 		UserID:    user.ID,
+		FamilyID:  "family-old",
 		TokenHash: tokens.HashRefresh(rawOld),
-		ExpiresAt: time.Now().Add(time.Hour).Unix(),
-		CreatedAt: time.Now().Unix(),
+		ExpiresAt: clock.Add(time.Hour).Unix(),
+		CreatedAt: clock.Unix(),
 	}); err != nil {
 		t.Fatalf("seed session: %v", err)
 	}
@@ -466,10 +532,14 @@ func TestRefreshReplayRevokesSessionFamily(t *testing.T) {
 		t.Fatalf("Refresh() error = %v", err)
 	}
 
+	clock = clock.Add(11 * time.Second)
 	if _, err := uc.Refresh(context.Background(), rawOld); !errors.Is(err, usecase.ErrInvalidRefreshToken) {
 		t.Fatalf("replayed Refresh() error = %v, want ErrInvalidRefreshToken", err)
 	}
 
+	if sessions.revokeUserCallFor != 0 {
+		t.Error("replay revoked every user session instead of only the family")
+	}
 	replacementHash := tokens.HashRefresh(rotated.RefreshToken)
 	if replacement, ok := sessions.sessions[replacementHash]; !ok || replacement.RevokedAt == nil {
 		t.Error("replay did not revoke the replacement session")

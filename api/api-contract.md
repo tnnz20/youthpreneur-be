@@ -15,10 +15,22 @@ The API uses cookie-based JWT authentication.
 - Cookie `Secure` is `true` only when `APP_ENV=production`; local HTTP
   development uses `Secure=false`.
 - `POST /auth/refresh` rotates the refresh token: the presented session is
-  revoked and a replacement is issued in one transaction. Reusing a rotated
-  token fails with `401` and revokes every refresh session for that user.
+  revoked and a replacement is issued in one transaction.
+- Every login starts a new refresh token family (`refresh_sessions.family_id`).
+  Rotation keeps the same family and stamps the consumed session with
+  `revocation_reason = 'rotated'`, a 10-second `grace_until`, and the replacement
+  token sealed with AES-256-GCM (key derived from `APP_AUTH_SECRET`). The raw
+  replacement is never stored in plaintext and never logged.
+- A duplicate `POST /auth/refresh` that presents the same old token within the
+  10-second grace window is treated as a client retry: it returns `204` with the
+  same replacement refresh token and a freshly issued access token. Repeated calls
+  never extend `grace_until`.
+- Reusing a rotated token after the grace window, or reusing a token revoked for
+  any non-rotation reason, is a replay: it fails with `401` and revokes only that
+  token's `family_id`. Other logins for the same user are unaffected.
 - Password change, admin password reset, and account deactivation revoke every
-  refresh session for the affected user.
+  refresh session for the affected user with a non-rotation reason, so old tokens
+  from those flows can never be redeemed through the grace window.
 - Expired refresh sessions are deleted opportunistically during login and
   refresh; active sessions are never deleted.
 - `POST /auth/logout` revokes the presented refresh token and clears both
@@ -158,6 +170,14 @@ limited by client IP; the default is 10 requests per minute and
 **Request:** No body.
 
 **Response:** No body. Both auth cookies are replaced.
+
+Duplicate submissions inside the 10-second rotation grace window return the same
+replacement refresh token with a new access token, so a retried request cannot
+double-rotate. The grace deadline is fixed at the first rotation and is never
+extended by later calls. Reuse outside the window is a replay that revokes only
+the presented token's family and still returns `401`; other logins for the same
+user keep working. Unknown, expired, or otherwise invalid tokens remain `401`
+and cookie attributes are unchanged.
 
 **Status Code:** `204 No Content`
 
@@ -1220,7 +1240,10 @@ Request bodies are limited to 1 MiB. Unknown JSON fields are currently ignored.
 - User, profile, and enterprise primary keys are internal `SERIAL` integers.
 - Public IDs use `YTP-DDDDDD`; they are lookup handles, not secrets or auth tokens.
 - Password hashes are stored in `users.password` and never serialized.
-- Refresh sessions store only SHA-256 token hashes plus expiry and revoke state.
+- Refresh sessions store only SHA-256 token hashes plus expiry, revoke state, a
+  `family_id`, a `revocation_reason`, and — only during the 10-second rotation
+  grace window — a `grace_until` deadline and the AES-256-GCM sealed replacement
+  token. Raw refresh tokens are never stored or logged.
 - Enterprise turnover uses `DECIMAL(15,2)` and is serialized as a JSON string.
 - Enterprise ownership is one-to-many: one user owns many enterprises, and
   `enterprises.user_id` is always server-derived from the authenticated user.
