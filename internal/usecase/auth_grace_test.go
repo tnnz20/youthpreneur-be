@@ -254,6 +254,44 @@ func TestExpiredTokenStillRejected(t *testing.T) {
 	}
 }
 
+// TestSecurityRevokeAfterRotationDisablesGrace locks task 4: a password-change
+// (or other user-wide security) revocation that lands after a rotation overwrites
+// the rotated session's reason and clears its grace metadata, so a duplicate of
+// the old token can no longer be served through the grace window.
+func TestSecurityRevokeAfterRotationDisablesGrace(t *testing.T) {
+	user := entity.User{ID: 3, PublicID: "YTP-000003", Role: entity.RoleMember, IsActive: true}
+	repo := &fakeUserRepository{findUser: user}
+	sessions := newFakeSessionRepository()
+
+	clock := time.Now()
+	now := func() time.Time { return clock }
+	uc, tokens := newGraceUsecase(t, repo, sessions, now)
+
+	seedSession(t, sessions, tokens, "refresh-old", user.ID, clock)
+
+	if _, err := uc.Refresh(context.Background(), "refresh-old"); err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+
+	rotatedHash := tokens.HashRefresh("refresh-old")
+	if err := sessions.RevokeUserRefreshSessions(context.Background(), user.ID, entity.ReasonPasswordChange, clock.Unix()); err != nil {
+		t.Fatalf("RevokeUserRefreshSessions() error = %v", err)
+	}
+
+	revoked := sessions.sessions[rotatedHash]
+	if revoked.RevocationReason != entity.ReasonRotated {
+		t.Errorf("revocation reason = %q, want preserved %q for an already-rotated row", revoked.RevocationReason, entity.ReasonRotated)
+	}
+	if revoked.GraceUntil != nil || revoked.ReplacementTokenEnc != nil {
+		t.Error("security revocation left grace metadata on the rotated session")
+	}
+
+	clock = clock.Add(2 * time.Second)
+	if _, err := uc.Refresh(context.Background(), "refresh-old"); !errors.Is(err, usecase.ErrInvalidRefreshToken) {
+		t.Fatalf("Refresh(old) error = %v, want ErrInvalidRefreshToken after security revocation", err)
+	}
+}
+
 // TestGraceDecryptFailureIsRejected locks requirement 8: a stored replacement
 // that cannot be decrypted fails closed instead of issuing a fresh token.
 func TestGraceDecryptFailureIsRejected(t *testing.T) {

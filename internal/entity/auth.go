@@ -25,6 +25,8 @@ const (
 // contains a replay to the affected login chain instead of every session the
 // user owns. ReplacementTokenEnc holds the AES-256-GCM sealed replacement token
 // for the grace window and is only populated while a rotation is inside grace.
+// ReplacedByHash is legacy bookkeeping; replay decisions use FamilyID plus
+// RevocationReason, so it is retained for schema compatibility only.
 type RefreshSession struct {
 	ID                  int
 	UserID              int

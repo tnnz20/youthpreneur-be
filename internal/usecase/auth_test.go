@@ -163,10 +163,14 @@ func (f *fakeSessionRepository) RevokeRefreshSession(_ context.Context, tokenHas
 	f.lastRevokedHash = tokenHash
 	f.lastRevokedReason = reason
 	f.lastRevokedAt = revokedAt
-	if session, ok := f.sessions[tokenHash]; ok && session.RevokedAt == nil {
-		revoked := revokedAt
-		session.RevokedAt = &revoked
-		session.RevocationReason = reason
+	if session, ok := f.sessions[tokenHash]; ok && (session.RevokedAt == nil || session.GraceUntil != nil) {
+		if session.RevokedAt == nil {
+			revoked := revokedAt
+			session.RevokedAt = &revoked
+			session.RevocationReason = reason
+		}
+		session.GraceUntil = nil
+		session.ReplacementTokenEnc = nil
 		f.sessions[tokenHash] = session
 	}
 
@@ -181,10 +185,14 @@ func (f *fakeSessionRepository) RevokeUserRefreshSessions(_ context.Context, use
 	f.revokeUserCallFor = userID
 	f.lastRevokedReason = reason
 	for hash, session := range f.sessions {
-		if session.UserID == userID && session.RevokedAt == nil {
-			revoked := revokedAt
-			session.RevokedAt = &revoked
-			session.RevocationReason = reason
+		if session.UserID == userID && (session.RevokedAt == nil || session.GraceUntil != nil) {
+			if session.RevokedAt == nil {
+				revoked := revokedAt
+				session.RevokedAt = &revoked
+				session.RevocationReason = reason
+			}
+			session.GraceUntil = nil
+			session.ReplacementTokenEnc = nil
 			f.sessions[hash] = session
 		}
 	}
@@ -199,10 +207,14 @@ func (f *fakeSessionRepository) RevokeRefreshSessionFamily(_ context.Context, fa
 
 	f.lastRevokedFamily = familyID
 	for hash, session := range f.sessions {
-		if session.FamilyID == familyID && session.RevokedAt == nil {
-			revoked := revokedAt
-			session.RevokedAt = &revoked
-			session.RevocationReason = reason
+		if session.FamilyID == familyID && (session.RevokedAt == nil || session.GraceUntil != nil) {
+			if session.RevokedAt == nil {
+				revoked := revokedAt
+				session.RevokedAt = &revoked
+				session.RevocationReason = reason
+			}
+			session.GraceUntil = nil
+			session.ReplacementTokenEnc = nil
 			f.sessions[hash] = session
 		}
 	}

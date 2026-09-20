@@ -138,8 +138,10 @@ func (r refreshSessionRepository) RevokeRefreshSession(
 ) error {
 	if _, err := r.db.ExecContext(ctx, `
 		UPDATE refresh_sessions
-		SET revoked_at = $2, revocation_reason = $3
-		WHERE token_hash = $1 AND revoked_at IS NULL`,
+		SET revoked_at = COALESCE(revoked_at, $2),
+		    revocation_reason = CASE WHEN revoked_at IS NULL THEN $3 ELSE revocation_reason END,
+		    grace_until = NULL, replacement_token_enc = NULL
+		WHERE token_hash = $1 AND (revoked_at IS NULL OR grace_until IS NOT NULL)`,
 		tokenHash,
 		revokedAt,
 		reason,
@@ -158,8 +160,10 @@ func (r refreshSessionRepository) RevokeUserRefreshSessions(
 ) error {
 	if _, err := r.db.ExecContext(ctx, `
 		UPDATE refresh_sessions
-		SET revoked_at = $2, revocation_reason = $3
-		WHERE user_id = $1 AND revoked_at IS NULL`,
+		SET revoked_at = COALESCE(revoked_at, $2),
+		    revocation_reason = CASE WHEN revoked_at IS NULL THEN $3 ELSE revocation_reason END,
+		    grace_until = NULL, replacement_token_enc = NULL
+		WHERE user_id = $1 AND (revoked_at IS NULL OR grace_until IS NOT NULL)`,
 		userID,
 		revokedAt,
 		reason,
@@ -177,8 +181,10 @@ func (r refreshSessionRepository) RevokeRefreshSessionFamily(
 ) error {
 	if _, err := r.db.ExecContext(ctx, `
 		UPDATE refresh_sessions
-		SET revoked_at = $2, revocation_reason = $3
-		WHERE family_id = $1 AND revoked_at IS NULL`,
+		SET revoked_at = COALESCE(revoked_at, $2),
+		    revocation_reason = CASE WHEN revoked_at IS NULL THEN $3 ELSE revocation_reason END,
+		    grace_until = NULL, replacement_token_enc = NULL
+		WHERE family_id = $1 AND (revoked_at IS NULL OR grace_until IS NOT NULL)`,
 		familyID,
 		revokedAt,
 		reason,

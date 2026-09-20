@@ -30,15 +30,18 @@ type RefreshSessionRepository interface {
 		next entity.RefreshSession,
 		now int64,
 	) (entity.RefreshSession, error)
-	// RevokeRefreshSession revokes the session matching tokenHash with reason.
-	// Revoking an unknown or already revoked session is a no-op.
+	// RevokeRefreshSession revokes the session matching tokenHash with reason
+	// and clears any rotation grace metadata. Revoking an unknown or already
+	// revoked session is a no-op.
 	RevokeRefreshSession(ctx context.Context, tokenHash, reason string, revokedAt int64) error
 	// RevokeUserRefreshSessions revokes every active session for userID with
-	// reason. It is used by security flows (password change, admin reset,
-	// deactivation) that must bypass the rotation grace window.
+	// reason and clears any rotation grace metadata. It is used by security
+	// flows (password change, admin reset, deactivation) that must bypass the
+	// rotation grace window.
 	RevokeUserRefreshSessions(ctx context.Context, userID int, reason string, revokedAt int64) error
 	// RevokeRefreshSessionFamily revokes every active session in familyID with
-	// reason. It contains a replay to the affected login chain only.
+	// reason and clears any rotation grace metadata. It contains a replay to the
+	// affected login chain only.
 	RevokeRefreshSessionFamily(ctx context.Context, familyID, reason string, revokedAt int64) error
 	// DeleteExpiredRefreshSessions removes sessions whose expiry is at or
 	// before now. Active sessions are never removed.

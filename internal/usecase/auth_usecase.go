@@ -286,9 +286,12 @@ func (u authUsecase) serveGraceWindow(
 		return AuthTokens{}, ErrInvalidRefreshToken
 	}
 
+	// A replacement that cannot be decrypted is unusable (tampered store or a
+	// changed APP_AUTH_SECRET). Fail closed as an invalid refresh token instead
+	// of surfacing a 500 or the underlying crypto error.
 	refresh, err := u.tokens.DecryptRefresh(session.ReplacementTokenEnc)
 	if err != nil {
-		return AuthTokens{}, fmt.Errorf("decrypt replacement refresh token: %w", err)
+		return AuthTokens{}, ErrInvalidRefreshToken
 	}
 
 	access, err := u.tokens.IssueAccess(user, now)
