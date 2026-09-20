@@ -31,6 +31,7 @@ type fakeUserUseCase struct {
 	lastListInput usecase.FindUsersInput
 
 	lastCreateInput usecase.CreateUserInput
+	lastUpdateInput entity.Profile
 }
 
 func (f *fakeUserUseCase) CreateUser(_ context.Context, input usecase.CreateUserInput) (entity.User, error) {
@@ -47,7 +48,9 @@ func (f *fakeUserUseCase) GetUser(_ context.Context, _ string) (entity.User, err
 	return f.getResult, f.getErr
 }
 
-func (f *fakeUserUseCase) UpdateProfile(_ context.Context, _ string, _ entity.Profile) (entity.User, error) {
+func (f *fakeUserUseCase) UpdateProfile(_ context.Context, _ string, profile entity.Profile) (entity.User, error) {
+	f.lastUpdateInput = profile
+
 	return f.getResult, f.getErr
 }
 

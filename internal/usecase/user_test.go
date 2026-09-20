@@ -205,8 +205,8 @@ func TestCreateUserGeneratesPublicIDHashesPasswordAndNormalizesInput(t *testing.
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte("secret123")); err != nil {
 		t.Errorf("stored hash does not match password: %v", err)
 	}
-	if user.Profile == nil || user.Profile.FullName != "Alice" || user.Profile.District != "Bandung" {
-		t.Errorf("profile = %+v, want trimmed fields", user.Profile)
+	if user.Profile == nil || user.Profile.FullName != "ALICE" || user.Profile.District != "BANDUNG" {
+		t.Errorf("profile = %+v, want trimmed uppercase fields", user.Profile)
 	}
 	if user.Profile.Phone != "08123456789" || user.Profile.Address != "Jalan Mawar 1" {
 		t.Errorf("profile contact = %+v, want trimmed phone and address", user.Profile)
@@ -560,6 +560,26 @@ func TestUpdateProfileRejectsUnknownGender(t *testing.T) {
 
 	if _, err := uc.UpdateProfile(context.Background(), "YTP-000001", entity.Profile{Gender: "other"}); !errors.Is(err, usecase.ErrBadRequest) {
 		t.Fatalf("UpdateProfile() error = %v, want ErrBadRequest", err)
+	}
+}
+
+func TestUpdateProfileUppercasesFullNameAndDistrict(t *testing.T) {
+	repo := &fakeUserRepository{}
+	uc := usecase.NewUserUseCase(repo, newFakeSessionRepository())
+
+	_, err := uc.UpdateProfile(context.Background(), "YTP-000001", entity.Profile{
+		FullName: "  alice  ",
+		District: " bandung ",
+		Phone:    " 08123 ",
+	})
+	if err != nil {
+		t.Fatalf("UpdateProfile() error = %v", err)
+	}
+	if repo.lastProfile.FullName != "ALICE" || repo.lastProfile.District != "BANDUNG" {
+		t.Errorf("profile = %+v, want trimmed uppercase fields", repo.lastProfile)
+	}
+	if repo.lastProfile.Phone != "08123" {
+		t.Errorf("phone = %q, want trimmed 08123 without case change", repo.lastProfile.Phone)
 	}
 }
 

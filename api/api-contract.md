@@ -295,6 +295,8 @@ Create a user and its profile.
 New users always receive the `member` role; the request cannot set a role. Admin
 provisioning requires a trusted database or admin flow. Passwords must contain 8
 to 72 bytes. `birth_date` must use `YYYY-MM-DD` and cannot be in the future.
+`full_name` and `district` are trimmed and stored uppercased; other fields are
+trimmed only.
 
 **Response:**
 
@@ -462,6 +464,9 @@ Replace profile fields for an active user. Omitted fields are cleared.
 | `district` | string | No | — | Empty value clears field |
 | `phone` | string | No | — | Empty value clears field |
 | `address` | string | No | — | Empty value clears field |
+
+`full_name` and `district` are trimmed and stored uppercased; other fields are
+trimmed only.
 
 **Request Example:**
 

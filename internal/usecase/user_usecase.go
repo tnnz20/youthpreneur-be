@@ -418,14 +418,15 @@ func validateGender(gender entity.Gender) error {
 	return badRequest("invalid gender")
 }
 
-// sanitizeProfile trims whitespace so empty input is stored as NULL.
+// sanitizeProfile trims whitespace so empty input is stored as NULL. full_name
+// and district are also uppercased before persistence.
 func sanitizeProfile(profile entity.Profile) entity.Profile {
 	return entity.Profile{
-		FullName:  strings.TrimSpace(profile.FullName),
+		FullName:  strings.ToUpper(strings.TrimSpace(profile.FullName)),
 		NIK:       strings.TrimSpace(profile.NIK),
 		BirthDate: profile.BirthDate,
 		Gender:    entity.Gender(strings.TrimSpace(string(profile.Gender))),
-		District:  strings.TrimSpace(profile.District),
+		District:  strings.ToUpper(strings.TrimSpace(profile.District)),
 		Phone:     strings.TrimSpace(profile.Phone),
 		Address:   strings.TrimSpace(profile.Address),
 	}

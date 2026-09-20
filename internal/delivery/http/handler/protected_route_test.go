@@ -126,6 +126,26 @@ func TestOwnershipRouteAllowsOwner(t *testing.T) {
 	}
 }
 
+func TestUpdateProfileMapsRequestFields(t *testing.T) {
+	parser := routeParser{claims: token.AccessClaims{PublicID: "YTP-000001", Role: entity.RoleMember}}
+	lookup := routeLookup{user: entity.User{PublicID: "YTP-000001", Role: entity.RoleMember, IsActive: true}}
+	uc := &fakeUserUseCase{getResult: entity.User{PublicID: "YTP-000001"}}
+	mux := newProtectedRouter(uc, parser, lookup)
+
+	rec := serveWithCookie(t, mux, http.MethodPut, "/users/YTP-000001/profile",
+		`{"full_name":"  alice  ","district":" bandung ","phone":"08123"}`, "good")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body %s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if uc.lastUpdateInput.FullName != "  alice  " || uc.lastUpdateInput.District != " bandung " {
+		t.Errorf("profile = %+v, want raw request fields passed to usecase", uc.lastUpdateInput)
+	}
+	if uc.lastUpdateInput.Phone != "08123" {
+		t.Errorf("phone = %q, want 08123", uc.lastUpdateInput.Phone)
+	}
+}
+
 func TestOwnershipRouteRejectsOtherUser(t *testing.T) {
 	parser := routeParser{claims: token.AccessClaims{PublicID: "YTP-000002", Role: entity.RoleMember}}
 	lookup := routeLookup{user: entity.User{PublicID: "YTP-000002", Role: entity.RoleMember, IsActive: true}}
