@@ -329,7 +329,7 @@ func TestListUsersParsesCursorFiltersAndReturnsNextCursor(t *testing.T) {
 		NextCursor: 11,
 	}}
 
-	rec := serve(t, newTestRouter(uc), http.MethodGet, "/users?district=Bandung&gender=male&cursor=10&limit=2", "")
+	rec := serve(t, newTestRouter(uc), http.MethodGet, "/users?district=Bandung&gender=male&search=ali&cursor=10&limit=2", "")
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body %s)", rec.Code, http.StatusOK, rec.Body.String())
@@ -340,6 +340,9 @@ func TestListUsersParsesCursorFiltersAndReturnsNextCursor(t *testing.T) {
 	}
 	if uc.lastListInput.Gender != "male" {
 		t.Errorf("gender = %q, want male", uc.lastListInput.Gender)
+	}
+	if uc.lastListInput.Search != "ali" {
+		t.Errorf("search = %q, want ali", uc.lastListInput.Search)
 	}
 	if uc.lastListInput.Cursor != 10 {
 		t.Errorf("cursor = %d, want 10", uc.lastListInput.Cursor)

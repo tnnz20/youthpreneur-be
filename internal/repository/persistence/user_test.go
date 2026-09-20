@@ -69,6 +69,12 @@ func TestFindUsersQueryExcludesAdminsBeforePagination(t *testing.T) {
 	}
 }
 
+func TestFindUsersQuerySearchesFullNameCaseInsensitively(t *testing.T) {
+	if !strings.Contains(findUsersQuery, "p.full_name ILIKE '%' || $6 || '%'") {
+		t.Errorf("findUsersQuery missing parameterized case-insensitive full_name search")
+	}
+}
+
 // TestUserRepositoryIntegration exercises real SQL against PostgreSQL. It runs
 // only when TEST_POSTGRES_DSN points at a database with migrations applied.
 func TestUserRepositoryIntegration(t *testing.T) {

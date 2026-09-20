@@ -52,11 +52,13 @@ type Profile struct {
 
 // UserFilter bounds and filters a cursor-paginated user query.
 //
-// Cursor is the last seen users.id; zero starts from the first row. District
-// and Gender are ignored when empty.
+// Cursor is the last seen users.id; zero starts from the first row. District,
+// Gender, and Search are ignored when empty. Search matches a case-insensitive
+// partial full_name.
 type UserFilter struct {
 	District string
 	Gender   Gender
+	Search   string
 	Cursor   int
 	Limit    int
 }

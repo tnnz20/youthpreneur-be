@@ -79,6 +79,7 @@ func (h *UserHandler) List(w http.ResponseWriter, r *http.Request) {
 	result, err := h.useCase.FindUsers(r.Context(), usecase.FindUsersInput{
 		District: query.Get("district"),
 		Gender:   query.Get("gender"),
+		Search:   query.Get("search"),
 		Cursor:   cursor,
 		Limit:    limit,
 	})

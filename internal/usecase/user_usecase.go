@@ -84,10 +84,12 @@ type ChangePasswordInput struct {
 	NewPassword     string
 }
 
-// FindUsersInput bounds and filters a user listing request.
+// FindUsersInput bounds and filters a user listing request. Search matches a
+// case-insensitive partial full_name.
 type FindUsersInput struct {
 	District string
 	Gender   string
+	Search   string
 	Cursor   int
 	Limit    int
 }
@@ -357,6 +359,7 @@ func (u userUsecase) FindUsers(ctx context.Context, input FindUsersInput) (FindU
 	filter := entity.UserFilter{
 		District: strings.TrimSpace(input.District),
 		Gender:   gender,
+		Search:   strings.TrimSpace(input.Search),
 		Cursor:   input.Cursor,
 		// Fetch one extra row to detect whether a further page exists.
 		Limit: limit + 1,

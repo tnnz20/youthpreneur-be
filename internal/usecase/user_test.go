@@ -412,6 +412,18 @@ func TestFindUsersRejectsUnknownGender(t *testing.T) {
 	}
 }
 
+func TestFindUsersTrimsAndForwardsSearch(t *testing.T) {
+	repo := &fakeUserRepository{}
+	uc := usecase.NewUserUseCase(repo, newFakeSessionRepository())
+
+	if _, err := uc.FindUsers(context.Background(), usecase.FindUsersInput{Search: "  alice  "}); err != nil {
+		t.Fatalf("FindUsers() error = %v", err)
+	}
+	if repo.lastFilter.Search != "alice" {
+		t.Errorf("search = %q, want alice", repo.lastFilter.Search)
+	}
+}
+
 func TestGetUserMapsNotFound(t *testing.T) {
 	repo := &fakeUserRepository{}
 	uc := usecase.NewUserUseCase(repo, newFakeSessionRepository())

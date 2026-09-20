@@ -343,6 +343,7 @@ Admin accounts are excluded. To retrieve a specific admin, use
 | `limit` | integer | No | Page size, default 20, maximum 100 |
 | `district` | string | No | Exact profile district filter |
 | `gender` | string | No | `male` or `female` |
+| `search` | string | No | Case-insensitive partial `full_name` match (`ILIKE %search%`) |
 
 **Response:**
 

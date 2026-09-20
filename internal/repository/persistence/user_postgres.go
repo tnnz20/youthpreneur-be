@@ -26,7 +26,8 @@ const userColumns = `
 
 // findUsersQuery lists active members only. Admin accounts are excluded in the
 // database before cursor and limit are applied so pagination has no gaps. Direct
-// lookups such as FindUserByPublicID can still return admins.
+// lookups such as FindUserByPublicID can still return admins. Search matches a
+// case-insensitive partial full_name.
 const findUsersQuery = `
 	SELECT ` + userColumns + `
 	FROM users u
@@ -35,6 +36,7 @@ const findUsersQuery = `
 	  AND u.role <> $4
 	  AND ($1 = '' OR p.district = $1)
 	  AND ($2 = '' OR p.gender = $2)
+	  AND ($6 = '' OR p.full_name ILIKE '%' || $6 || '%')
 	  AND ($3::int = 0 OR u.id > $3)
 	ORDER BY u.id ASC
 	LIMIT $5`
@@ -142,6 +144,7 @@ func (r userRepository) FindUsers(ctx context.Context, filter entity.UserFilter)
 		filter.Cursor,
 		string(entity.RoleAdmin),
 		filter.Limit,
+		filter.Search,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("query users: %w", err)
