@@ -9,13 +9,20 @@ type CreateTrainingEnrollmentRequest struct {
 	CatalogPublicID string `json:"catalog_public_id"`
 }
 
+// UpdateTrainingEnrollmentStatusRequest is the JSON body for updating an
+// enrollment's approval status.
+type UpdateTrainingEnrollmentStatusRequest struct {
+	Status string `json:"status"`
+}
+
 // TrainingEnrollmentResponse is the JSON representation of one enrollment.
-// RegisterDate is a `YYYY-MM-DD` string and Catalog is the joined catalog
-// snapshot so history stays meaningful after a catalog changes.
+// RegisterDate is a `YYYY-MM-DD` string, Status is the enrollment approval state,
+// and Catalog is the joined catalog snapshot so history stays meaningful after a catalog changes.
 type TrainingEnrollmentResponse struct {
 	PublicID     string                   `json:"public_id"`
 	UserPublicID string                   `json:"user_public_id"`
 	RegisterDate *string                  `json:"register_date"`
+	Status       string                   `json:"status"`
 	CreatedAt    int64                    `json:"created_at"`
 	UpdatedAt    int64                    `json:"updated_at"`
 	Catalog      *TrainingCatalogResponse `json:"catalog"`
@@ -34,6 +41,7 @@ func ToTrainingEnrollmentResponse(enrollment entity.TrainingEnrollment) Training
 		PublicID:     enrollment.PublicID,
 		UserPublicID: enrollment.UserPublicID,
 		RegisterDate: formatOptionalDate(enrollment.RegisterDate),
+		Status:       string(enrollment.Status),
 		CreatedAt:    enrollment.CreatedAt,
 		UpdatedAt:    enrollment.UpdatedAt,
 	}
