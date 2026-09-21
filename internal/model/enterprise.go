@@ -97,3 +97,21 @@ type PublicEnterpriseListResponse struct {
 	Enterprises []PublicEnterpriseResponse `json:"enterprises"`
 	NextCursor  string                     `json:"next_cursor,omitempty"`
 }
+
+// EnterpriseAuditEventResponse is the JSON representation of an enterprise audit event.
+type EnterpriseAuditEventResponse struct {
+	ID            int            `json:"id"`
+	ActorPublicID string         `json:"actor_public_id"`
+	ActorEmail    string         `json:"actor_email"`
+	ActorName     string         `json:"actor_name"`
+	Action        string         `json:"action"`
+	ChangedFields map[string]any `json:"changed_fields"`
+	CreatedAt     int64          `json:"created_at"`
+}
+
+// EnterpriseAuditListResponse is one page of enterprise audit events with the cursor
+// for the next page.
+type EnterpriseAuditListResponse struct {
+	Events     []EnterpriseAuditEventResponse `json:"events"`
+	NextCursor string                         `json:"next_cursor,omitempty"`
+}

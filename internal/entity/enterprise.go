@@ -238,3 +238,22 @@ type PublicEnterpriseFilter struct {
 	Cursor            int
 	Limit             int
 }
+
+// EnterpriseAuditEventView represents an enterprise audit event enriched with actor details.
+type EnterpriseAuditEventView struct {
+	ID            int
+	ActorPublicID string
+	ActorEmail    string
+	ActorName     string
+	Action        AuditAction
+	ChangedFields map[string]any
+	CreatedAt     int64
+}
+
+// EnterpriseAuditFilter bounds a cursor-paginated enterprise audit query.
+type EnterpriseAuditFilter struct {
+	PublicID string
+	OwnerID  int // 0 for admin, >0 for member owner-scoping
+	Cursor   int
+	Limit    int
+}

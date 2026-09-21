@@ -185,6 +185,46 @@ func (h *EnterpriseHandler) Get(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, toEnterpriseResponse(enterprise))
 }
 
+// ListAuditLogs handles GET /enterprises/{publicID}/audit-logs.
+func (h *EnterpriseHandler) ListAuditLogs(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+
+	cursor, err := parseCursor(query.Get("cursor"))
+	if err != nil {
+		h.writeError(w, http.StatusBadRequest, "invalid cursor")
+		return
+	}
+
+	limit, err := parseLimit(query.Get("limit"))
+	if err != nil {
+		h.writeError(w, http.StatusBadRequest, "invalid limit")
+		return
+	}
+
+	actor, ok := h.actor(w, r)
+	if !ok {
+		return
+	}
+
+	result, err := h.useCase.FindEnterpriseAuditLogs(r.Context(), usecase.FindEnterpriseAuditLogsInput{
+		Actor:    actor,
+		PublicID: r.PathValue("publicID"),
+		Cursor:   cursor,
+		Limit:    limit,
+	})
+	if err != nil {
+		h.writeUsecaseError(w, err)
+		return
+	}
+
+	response := model.EnterpriseAuditListResponse{Events: toEnterpriseAuditEventResponses(result.Events)}
+	if result.NextCursor != 0 {
+		response.NextCursor = strconv.Itoa(result.NextCursor)
+	}
+
+	h.writeJSON(w, http.StatusOK, response)
+}
+
 // Update handles PATCH /enterprises/{publicID}.
 func (h *EnterpriseHandler) Update(w http.ResponseWriter, r *http.Request) {
 	var request model.UpdateEnterpriseRequest
@@ -345,6 +385,32 @@ func toPublicEnterpriseResponses(items []entity.PublicEnterprise) []model.Public
 	responses := make([]model.PublicEnterpriseResponse, 0, len(items))
 	for _, item := range items {
 		responses = append(responses, toPublicEnterpriseResponse(item))
+	}
+
+	return responses
+}
+
+func toEnterpriseAuditEventResponse(event entity.EnterpriseAuditEventView) model.EnterpriseAuditEventResponse {
+	changedFields := event.ChangedFields
+	if changedFields == nil {
+		changedFields = map[string]any{}
+	}
+
+	return model.EnterpriseAuditEventResponse{
+		ID:            event.ID,
+		ActorPublicID: event.ActorPublicID,
+		ActorEmail:    event.ActorEmail,
+		ActorName:     event.ActorName,
+		Action:        string(event.Action),
+		ChangedFields: changedFields,
+		CreatedAt:     event.CreatedAt,
+	}
+}
+
+func toEnterpriseAuditEventResponses(events []entity.EnterpriseAuditEventView) []model.EnterpriseAuditEventResponse {
+	responses := make([]model.EnterpriseAuditEventResponse, 0, len(events))
+	for _, event := range events {
+		responses = append(responses, toEnterpriseAuditEventResponse(event))
 	}
 
 	return responses

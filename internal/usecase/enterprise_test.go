@@ -33,6 +33,10 @@ type fakeEnterpriseRepository struct {
 	publicErr        error
 	lastPublicFilter entity.PublicEnterpriseFilter
 
+	auditResult     []entity.EnterpriseAuditEventView
+	auditErr        error
+	lastAuditFilter entity.EnterpriseAuditFilter
+
 	updateErr       error
 	updateCalls     int
 	updateResult    entity.Enterprise
@@ -97,6 +101,15 @@ func (f *fakeEnterpriseRepository) FindPublicEnterprises(
 	f.lastPublicFilter = filter
 
 	return f.publicResult, f.publicErr
+}
+
+func (f *fakeEnterpriseRepository) FindEnterpriseAuditEvents(
+	_ context.Context,
+	filter entity.EnterpriseAuditFilter,
+) ([]entity.EnterpriseAuditEventView, error) {
+	f.lastAuditFilter = filter
+
+	return f.auditResult, f.auditErr
 }
 
 func (f *fakeEnterpriseRepository) UpdateEnterprise(
@@ -819,4 +832,126 @@ func TestDeleteEnterpriseMapsNotFound(t *testing.T) {
 	if err := uc.DeleteEnterprise(context.Background(), memberActor(), "TPN-000404"); !errors.Is(err, usecase.ErrEnterpriseNotFound) {
 		t.Fatalf("DeleteEnterprise() error = %v, want ErrEnterpriseNotFound", err)
 	}
+}
+
+func TestFindEnterpriseAuditLogs(t *testing.T) {
+	t.Run("unauthenticated actor", func(t *testing.T) {
+		repo := &fakeEnterpriseRepository{}
+		uc := usecase.NewEnterpriseUseCase(repo)
+
+		_, err := uc.FindEnterpriseAuditLogs(context.Background(), usecase.FindEnterpriseAuditLogsInput{
+			Actor:    entity.User{ID: 0},
+			PublicID: "TPN-000001",
+		})
+		if !errors.Is(err, usecase.ErrForbidden) {
+			t.Errorf("error = %v, want ErrForbidden", err)
+		}
+	})
+
+	t.Run("empty public id", func(t *testing.T) {
+		repo := &fakeEnterpriseRepository{}
+		uc := usecase.NewEnterpriseUseCase(repo)
+
+		_, err := uc.FindEnterpriseAuditLogs(context.Background(), usecase.FindEnterpriseAuditLogsInput{
+			Actor:    memberActor(),
+			PublicID: "   ",
+		})
+		if !errors.Is(err, usecase.ErrEnterpriseNotFound) {
+			t.Errorf("error = %v, want ErrEnterpriseNotFound", err)
+		}
+	})
+
+	t.Run("member owner scope", func(t *testing.T) {
+		repo := &fakeEnterpriseRepository{
+			auditResult: []entity.EnterpriseAuditEventView{
+				{ID: 10, Action: entity.AuditActionCreate},
+			},
+		}
+		uc := usecase.NewEnterpriseUseCase(repo)
+
+		actor := entity.User{ID: 42, Role: entity.RoleMember}
+		res, err := uc.FindEnterpriseAuditLogs(context.Background(), usecase.FindEnterpriseAuditLogsInput{
+			Actor:    actor,
+			PublicID: "TPN-000001",
+			Limit:    20,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error = %v", err)
+		}
+		if repo.lastAuditFilter.OwnerID != 42 {
+			t.Errorf("owner scope = %d, want 42", repo.lastAuditFilter.OwnerID)
+		}
+		if repo.lastAuditFilter.PublicID != "TPN-000001" {
+			t.Errorf("public_id = %q, want TPN-000001", repo.lastAuditFilter.PublicID)
+		}
+		if len(res.Events) != 1 || res.NextCursor != 0 {
+			t.Errorf("result = %+v, want 1 event and no next cursor", res)
+		}
+	})
+
+	t.Run("admin unscoped", func(t *testing.T) {
+		repo := &fakeEnterpriseRepository{
+			auditResult: []entity.EnterpriseAuditEventView{
+				{ID: 20, Action: entity.AuditActionUpdate},
+			},
+		}
+		uc := usecase.NewEnterpriseUseCase(repo)
+
+		actor := entity.User{ID: 99, Role: entity.RoleAdmin}
+		res, err := uc.FindEnterpriseAuditLogs(context.Background(), usecase.FindEnterpriseAuditLogsInput{
+			Actor:    actor,
+			PublicID: "TPN-000001",
+			Limit:    20,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error = %v", err)
+		}
+		if repo.lastAuditFilter.OwnerID != 0 {
+			t.Errorf("owner scope = %d, want 0 for admin", repo.lastAuditFilter.OwnerID)
+		}
+		if len(res.Events) != 1 {
+			t.Errorf("len(Events) = %d, want 1", len(res.Events))
+		}
+	})
+
+	t.Run("pagination with next cursor", func(t *testing.T) {
+		repo := &fakeEnterpriseRepository{
+			auditResult: []entity.EnterpriseAuditEventView{
+				{ID: 30, Action: entity.AuditActionDelete},
+				{ID: 20, Action: entity.AuditActionUpdate},
+				{ID: 10, Action: entity.AuditActionCreate}, // extra row
+			},
+		}
+		uc := usecase.NewEnterpriseUseCase(repo)
+
+		res, err := uc.FindEnterpriseAuditLogs(context.Background(), usecase.FindEnterpriseAuditLogsInput{
+			Actor:    memberActor(),
+			PublicID: "TPN-000001",
+			Limit:    2,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error = %v", err)
+		}
+		if len(res.Events) != 2 {
+			t.Fatalf("len(Events) = %d, want 2", len(res.Events))
+		}
+		if res.NextCursor != 20 {
+			t.Errorf("NextCursor = %d, want 20", res.NextCursor)
+		}
+	})
+
+	t.Run("maps not found error", func(t *testing.T) {
+		repo := &fakeEnterpriseRepository{
+			auditErr: repository.ErrEnterpriseNotFound,
+		}
+		uc := usecase.NewEnterpriseUseCase(repo)
+
+		_, err := uc.FindEnterpriseAuditLogs(context.Background(), usecase.FindEnterpriseAuditLogsInput{
+			Actor:    memberActor(),
+			PublicID: "TPN-000404",
+		})
+		if !errors.Is(err, usecase.ErrEnterpriseNotFound) {
+			t.Errorf("error = %v, want ErrEnterpriseNotFound", err)
+		}
+	})
 }

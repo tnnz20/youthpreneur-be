@@ -511,6 +511,136 @@ func TestEnterpriseRepositoryMutationReturnedNullableAndPrecisionIntegration(t *
 	}
 }
 
+func TestEnterpriseRepositoryAuditEventsIntegration(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set; skipping PostgreSQL integration test")
+	}
+
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	ctx := context.Background()
+	if err := db.PingContext(ctx); err != nil {
+		t.Fatalf("ping database: %v", err)
+	}
+
+	userRepo := NewUserRepository(db)
+	repo := NewEnterpriseRepository(db)
+
+	suffix := time.Now().UnixNano()
+	owner := createIntegrationUser(t, ctx, db, userRepo, suffix, "audit-owner")
+	other := createIntegrationUser(t, ctx, db, userRepo, suffix+1, "audit-other")
+	now := time.Now().Unix()
+
+	publicID := fmt.Sprintf("TPN-%06d", (suffix/1000)%1000000)
+	created, err := repo.CreateEnterprise(ctx, entity.Enterprise{
+		PublicID:        publicID,
+		UserID:          owner.ID,
+		EnterpriseName:  "Audit Biz",
+		BusinessSector:  entity.BusinessSectorKuliner,
+		InitialTurnover: "500000.00",
+		CurrentTurnover: "1000000.00",
+		Status:          entity.EnterpriseStatusActive,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}, entity.EnterpriseAuditEvent{
+		ActorUserID:   owner.ID,
+		Action:        entity.AuditActionCreate,
+		ChangedFields: map[string]any{"enterprise_name": "Audit Biz"},
+		CreatedAt:     now,
+	})
+	if err != nil {
+		t.Fatalf("CreateEnterprise() error = %v", err)
+	}
+
+	renamed := "Audit Biz Updated"
+	_, err = repo.UpdateEnterprise(ctx, created.PublicID, owner.ID, entity.EnterpriseUpdate{
+		EnterpriseName: &renamed,
+		UpdatedAt:      now + 1,
+	}, entity.EnterpriseAuditEvent{
+		ActorUserID:   owner.ID,
+		Action:        entity.AuditActionUpdate,
+		ChangedFields: map[string]any{"enterprise_name": "Audit Biz Updated"},
+		CreatedAt:     now + 1,
+	})
+	if err != nil {
+		t.Fatalf("UpdateEnterprise() error = %v", err)
+	}
+
+	// Owner scope query
+	events, err := repo.FindEnterpriseAuditEvents(ctx, entity.EnterpriseAuditFilter{
+		PublicID: created.PublicID,
+		OwnerID:  owner.ID,
+		Limit:    10,
+	})
+	if err != nil {
+		t.Fatalf("FindEnterpriseAuditEvents(owner) error = %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("got %d events, want 2", len(events))
+	}
+	// Newest first: update then create
+	if events[0].Action != entity.AuditActionUpdate || events[1].Action != entity.AuditActionCreate {
+		t.Errorf("actions = [%s, %s], want [update, create]", events[0].Action, events[1].Action)
+	}
+	if events[0].ActorEmail != owner.Email || events[0].ActorName != owner.Profile.FullName {
+		t.Errorf("actor info = (%q, %q), want (%q, %q)", events[0].ActorEmail, events[0].ActorName, owner.Email, owner.Profile.FullName)
+	}
+
+	// Other owner scope: must return ErrEnterpriseNotFound
+	_, err = repo.FindEnterpriseAuditEvents(ctx, entity.EnterpriseAuditFilter{
+		PublicID: created.PublicID,
+		OwnerID:  other.ID,
+		Limit:    10,
+	})
+	if !errors.Is(err, repository.ErrEnterpriseNotFound) {
+		t.Errorf("FindEnterpriseAuditEvents(other) error = %v, want ErrEnterpriseNotFound", err)
+	}
+
+	// Admin scope: OwnerID = 0
+	adminEvents, err := repo.FindEnterpriseAuditEvents(ctx, entity.EnterpriseAuditFilter{
+		PublicID: created.PublicID,
+		OwnerID:  0,
+		Limit:    10,
+	})
+	if err != nil {
+		t.Fatalf("FindEnterpriseAuditEvents(admin) error = %v", err)
+	}
+	if len(adminEvents) != 2 {
+		t.Errorf("admin got %d events, want 2", len(adminEvents))
+	}
+
+	// Pagination: cursor with limit 1
+	page1, err := repo.FindEnterpriseAuditEvents(ctx, entity.EnterpriseAuditFilter{
+		PublicID: created.PublicID,
+		OwnerID:  owner.ID,
+		Limit:    1,
+	})
+	if err != nil {
+		t.Fatalf("page1 error = %v", err)
+	}
+	if len(page1) != 1 || page1[0].Action != entity.AuditActionUpdate {
+		t.Fatalf("page1 got %+v, want 1 update event", page1)
+	}
+
+	page2, err := repo.FindEnterpriseAuditEvents(ctx, entity.EnterpriseAuditFilter{
+		PublicID: created.PublicID,
+		OwnerID:  owner.ID,
+		Cursor:   page1[0].ID,
+		Limit:    1,
+	})
+	if err != nil {
+		t.Fatalf("page2 error = %v", err)
+	}
+	if len(page2) != 1 || page2[0].Action != entity.AuditActionCreate {
+		t.Fatalf("page2 got %+v, want 1 create event", page2)
+	}
+}
+
 func assertEnterpriseTurnoverConstraint(t *testing.T, err error, constraint string) {
 	t.Helper()
 

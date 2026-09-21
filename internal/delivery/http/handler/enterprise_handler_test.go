@@ -30,6 +30,10 @@ type fakeEnterpriseUseCase struct {
 	publicErr       error
 	lastPublicInput usecase.FindPublicEnterprisesInput
 
+	auditResult    usecase.FindEnterpriseAuditLogsResult
+	auditErr       error
+	lastAuditInput usecase.FindEnterpriseAuditLogsInput
+
 	getResult entity.Enterprise
 	getErr    error
 
@@ -69,6 +73,15 @@ func (f *fakeEnterpriseUseCase) FindPublicEnterprises(
 	f.lastPublicInput = input
 
 	return f.publicResult, f.publicErr
+}
+
+func (f *fakeEnterpriseUseCase) FindEnterpriseAuditLogs(
+	_ context.Context,
+	input usecase.FindEnterpriseAuditLogsInput,
+) (usecase.FindEnterpriseAuditLogsResult, error) {
+	f.lastAuditInput = input
+
+	return f.auditResult, f.auditErr
 }
 
 func (f *fakeEnterpriseUseCase) UpdateEnterprise(
@@ -286,6 +299,71 @@ func TestGetEnterpriseNotFoundMaps404(t *testing.T) {
 	}
 }
 
+func TestListEnterpriseAuditLogsSuccess(t *testing.T) {
+	uc := &fakeEnterpriseUseCase{
+		auditResult: usecase.FindEnterpriseAuditLogsResult{
+			Events: []entity.EnterpriseAuditEventView{
+				{
+					ID:            15,
+					ActorPublicID: "YTP-000001",
+					ActorEmail:    "admin@example.com",
+					ActorName:     "Admin User",
+					Action:        entity.AuditActionUpdate,
+					ChangedFields: map[string]any{"enterprise_name": "New Name"},
+					CreatedAt:     1700000001,
+				},
+			},
+			NextCursor: 15,
+		},
+	}
+
+	router := newEnterpriseRouter(uc, enterpriseIdentity(entity.User{ID: 1, Role: entity.RoleAdmin}))
+	rec := serve(t, router, http.MethodGet, "/enterprises/TPN-000011/audit-logs?cursor=50&limit=10", "")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body %s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if uc.lastAuditInput.PublicID != "TPN-000011" || uc.lastAuditInput.Cursor != 50 || uc.lastAuditInput.Limit != 10 {
+		t.Errorf("lastAuditInput = %+v", uc.lastAuditInput)
+	}
+
+	var response model.EnterpriseAuditListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(response.Events) != 1 {
+		t.Fatalf("got %d events, want 1", len(response.Events))
+	}
+	if response.NextCursor != "15" {
+		t.Errorf("NextCursor = %q, want 15", response.NextCursor)
+	}
+	event := response.Events[0]
+	if event.ID != 15 || event.ActorEmail != "admin@example.com" || event.Action != "update" {
+		t.Errorf("unexpected event: %+v", event)
+	}
+}
+
+func TestListEnterpriseAuditLogsInvalidParams(t *testing.T) {
+	router := newEnterpriseRouter(&fakeEnterpriseUseCase{}, enterpriseIdentity(entity.User{ID: 1, Role: entity.RoleAdmin}))
+
+	if rec := serve(t, router, http.MethodGet, "/enterprises/TPN-000011/audit-logs?cursor=xyz", ""); rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 for invalid cursor", rec.Code)
+	}
+	if rec := serve(t, router, http.MethodGet, "/enterprises/TPN-000011/audit-logs?limit=abc", ""); rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 for invalid limit", rec.Code)
+	}
+}
+
+func TestListEnterpriseAuditLogsNotFound(t *testing.T) {
+	uc := &fakeEnterpriseUseCase{auditErr: usecase.ErrEnterpriseNotFound}
+	router := newEnterpriseRouter(uc, enterpriseIdentity(entity.User{ID: 7, Role: entity.RoleMember}))
+
+	rec := serve(t, router, http.MethodGet, "/enterprises/TPN-000404/audit-logs", "")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
 func TestUpdateEnterpriseForbiddenMaps403(t *testing.T) {
 	uc := &fakeEnterpriseUseCase{updateErr: usecase.ErrForbidden}
 
@@ -339,10 +417,11 @@ func newProtectedEnterpriseRouter(uc usecase.EnterpriseUseCase, parser routePars
 func TestEnterpriseRoutesRequireAuthentication(t *testing.T) {
 	mux := newProtectedEnterpriseRouter(&fakeEnterpriseUseCase{}, routeParser{}, routeLookup{})
 
-	rec := serveWithCookie(t, mux, http.MethodGet, "/enterprises", "", "")
-
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	for _, path := range []string{"/enterprises", "/enterprises/TPN-000011/audit-logs"} {
+		rec := serveWithCookie(t, mux, http.MethodGet, path, "", "")
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("path %s status = %d, want %d", path, rec.Code, http.StatusUnauthorized)
+		}
 	}
 }
 

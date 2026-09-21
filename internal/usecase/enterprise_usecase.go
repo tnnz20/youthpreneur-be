@@ -170,6 +170,21 @@ type FindPublicEnterprisesResult struct {
 	NextCursor  int
 }
 
+// FindEnterpriseAuditLogsInput bounds an enterprise audit log request.
+type FindEnterpriseAuditLogsInput struct {
+	Actor    entity.User
+	PublicID string
+	Cursor   int
+	Limit    int
+}
+
+// FindEnterpriseAuditLogsResult is one page of enterprise audit events plus the cursor
+// for the following page.
+type FindEnterpriseAuditLogsResult struct {
+	Events     []entity.EnterpriseAuditEventView
+	NextCursor int
+}
+
 // EnterpriseUseCase implements owned enterprise operations.
 type EnterpriseUseCase interface {
 	// CreateEnterprise validates input and creates an enterprise owned by the
@@ -183,6 +198,9 @@ type EnterpriseUseCase interface {
 	// FindPublicEnterprises returns one page of active enterprises ordered newest
 	// first for the public showcase.
 	FindPublicEnterprises(ctx context.Context, input FindPublicEnterprisesInput) (FindPublicEnterprisesResult, error)
+	// FindEnterpriseAuditLogs returns one page of audit events for the enterprise
+	// matching publicID within the actor's scope.
+	FindEnterpriseAuditLogs(ctx context.Context, input FindEnterpriseAuditLogsInput) (FindEnterpriseAuditLogsResult, error)
 	// UpdateEnterprise changes the permitted fields of the enterprise matching
 	// publicID within the actor's scope. Owners may not change status, dispora_support,
 	// or assessment enums; admins may change any mutable field.
@@ -434,6 +452,41 @@ func (u enterpriseUsecase) FindPublicEnterprises(
 	if len(items) > limit {
 		result.Enterprises = items[:limit]
 		result.NextCursor = items[limit-1].ID
+	}
+
+	return result, nil
+}
+
+// FindEnterpriseAuditLogs returns one page of audit events for the enterprise
+// matching publicID within the actor's scope.
+func (u enterpriseUsecase) FindEnterpriseAuditLogs(
+	ctx context.Context,
+	input FindEnterpriseAuditLogsInput,
+) (FindEnterpriseAuditLogsResult, error) {
+	if input.Actor.ID == 0 {
+		return FindEnterpriseAuditLogsResult{}, ErrForbidden
+	}
+
+	publicID := strings.TrimSpace(input.PublicID)
+	if publicID == "" {
+		return FindEnterpriseAuditLogsResult{}, ErrEnterpriseNotFound
+	}
+
+	limit := clampLimit(input.Limit)
+	events, err := u.repo.FindEnterpriseAuditEvents(ctx, entity.EnterpriseAuditFilter{
+		PublicID: publicID,
+		OwnerID:  scopeOwnerID(input.Actor),
+		Cursor:   input.Cursor,
+		Limit:    limit + 1,
+	})
+	if err != nil {
+		return FindEnterpriseAuditLogsResult{}, mapEnterpriseRepositoryError(err)
+	}
+
+	result := FindEnterpriseAuditLogsResult{Events: events}
+	if len(events) > limit {
+		result.Events = events[:limit]
+		result.NextCursor = events[limit-1].ID
 	}
 
 	return result, nil
