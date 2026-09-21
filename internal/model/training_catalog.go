@@ -1,5 +1,7 @@
 package model
 
+import "github.com/tnnz20/youthpreneur-be/internal/entity"
+
 // CreateTrainingCatalogRequest is the JSON body for creating a catalog entry.
 // Public ID, timestamps, and deletion state are server-controlled.
 type CreateTrainingCatalogRequest struct {
@@ -59,4 +61,33 @@ type TrainingCatalogResponse struct {
 type TrainingCatalogListResponse struct {
 	Catalogs   []TrainingCatalogResponse `json:"training_catalogs"`
 	NextCursor string                    `json:"next_cursor,omitempty"`
+}
+
+// ToTrainingCatalogResponse converts an entity.TrainingCatalog to a TrainingCatalogResponse.
+func ToTrainingCatalogResponse(catalog entity.TrainingCatalog) TrainingCatalogResponse {
+	return TrainingCatalogResponse{
+		PublicID:       catalog.PublicID,
+		Name:           optionalString(catalog.Name),
+		Description:    optionalString(catalog.Description),
+		PicPhone:       optionalString(catalog.PicPhone),
+		Category:       optionalString(catalog.Category),
+		TrainingSlots:  catalog.TrainingSlots,
+		TrainingStatus: optionalString(string(catalog.TrainingStatus)),
+		Link:           optionalString(catalog.Link),
+		TrainingDate:   formatOptionalDate(catalog.TrainingDate),
+		TrainingPeriod: optionalString(catalog.TrainingPeriod),
+		Speaker:        optionalString(catalog.Speaker),
+		CreatedAt:      catalog.CreatedAt,
+		UpdatedAt:      catalog.UpdatedAt,
+	}
+}
+
+// ToTrainingCatalogResponses converts a slice of entity.TrainingCatalog to a slice of TrainingCatalogResponse.
+func ToTrainingCatalogResponses(catalogs []entity.TrainingCatalog) []TrainingCatalogResponse {
+	responses := make([]TrainingCatalogResponse, 0, len(catalogs))
+	for _, catalog := range catalogs {
+		responses = append(responses, ToTrainingCatalogResponse(catalog))
+	}
+
+	return responses
 }

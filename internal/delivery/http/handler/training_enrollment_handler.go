@@ -50,7 +50,7 @@ func (h *TrainingEnrollmentHandler) Create(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	h.writeJSON(w, http.StatusCreated, toTrainingEnrollmentResponse(enrollment))
+	h.writeJSON(w, http.StatusCreated, model.ToTrainingEnrollmentResponse(enrollment))
 }
 
 // Cancel handles DELETE /training-enrollments/{publicID}.
@@ -168,7 +168,7 @@ func (h *TrainingEnrollmentHandler) paging(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *TrainingEnrollmentHandler) writeList(w http.ResponseWriter, result usecase.FindTrainingEnrollmentsResult) {
-	response := model.TrainingEnrollmentListResponse{Enrollments: toTrainingEnrollmentResponses(result.Enrollments)}
+	response := model.TrainingEnrollmentListResponse{Enrollments: model.ToTrainingEnrollmentResponses(result.Enrollments)}
 	if result.NextCursor != 0 {
 		response.NextCursor = strconv.Itoa(result.NextCursor)
 	}
@@ -223,30 +223,4 @@ func (h *TrainingEnrollmentHandler) writeUsecaseError(w http.ResponseWriter, err
 		h.logger.Error("training enrollment request failed", "error", err)
 		h.writeError(w, http.StatusInternalServerError, "internal server error")
 	}
-}
-
-func toTrainingEnrollmentResponse(enrollment entity.TrainingEnrollment) model.TrainingEnrollmentResponse {
-	response := model.TrainingEnrollmentResponse{
-		PublicID:     enrollment.PublicID,
-		UserPublicID: enrollment.UserPublicID,
-		RegisterDate: formatOptionalDate(enrollment.RegisterDate),
-		CreatedAt:    enrollment.CreatedAt,
-		UpdatedAt:    enrollment.UpdatedAt,
-	}
-
-	if enrollment.Catalog != nil {
-		catalog := toTrainingCatalogResponse(*enrollment.Catalog)
-		response.Catalog = &catalog
-	}
-
-	return response
-}
-
-func toTrainingEnrollmentResponses(enrollments []entity.TrainingEnrollment) []model.TrainingEnrollmentResponse {
-	responses := make([]model.TrainingEnrollmentResponse, 0, len(enrollments))
-	for _, enrollment := range enrollments {
-		responses = append(responses, toTrainingEnrollmentResponse(enrollment))
-	}
-
-	return responses
 }
