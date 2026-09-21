@@ -79,8 +79,6 @@ type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
-const birthDateFormat = "2006-01-02"
-
 // ToUserResponse converts an entity.User to a UserResponse.
 func ToUserResponse(user entity.User) UserResponse {
 	response := UserResponse{
@@ -102,7 +100,7 @@ func ToUserResponse(user entity.User) UserResponse {
 			Address:  user.Profile.Address,
 		}
 		if user.Profile.BirthDate != nil {
-			profile.BirthDate = user.Profile.BirthDate.Format(birthDateFormat)
+			profile.BirthDate = user.Profile.BirthDate.Format(DateFormat)
 		}
 		response.Profile = profile
 	}

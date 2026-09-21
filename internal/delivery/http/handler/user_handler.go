@@ -12,9 +12,6 @@ import (
 	"github.com/tnnz20/youthpreneur-be/internal/usecase"
 )
 
-// birthDateFormat is the ISO 8601 date format used for profile birth dates.
-const birthDateFormat = "2006-01-02"
-
 // UserHandler serves HTTP requests for user and profile operations.
 type UserHandler struct {
 	logger  *slog.Logger
@@ -256,7 +253,7 @@ func parseBirthDate(raw string) (*time.Time, error) {
 		return nil, nil
 	}
 
-	parsed, err := time.Parse(birthDateFormat, raw)
+	parsed, err := time.Parse(model.DateFormat, raw)
 	if err != nil {
 		return nil, err
 	}

@@ -123,7 +123,7 @@ PR #8 delivers two distinct objectives cleanly:
 
 ## Suggestions & Next Steps
 
-1. **Date Format Unification (Optional Quality of Life)**:
-   - Move `birthDateFormat = "2006-01-02"` to an unexported or exported constant in `internal/model/helpers.go` (e.g. `const DateFormat = "2006-01-02"`), and reference it in `formatOptionalDate` and `ToUserResponse`.
+1. **Date Format Unification**:
+   - `const DateFormat = "2006-01-02"` added to `internal/model/helpers.go` and adopted across `internal/model` and `user_handler.go` (`parseBirthDate`). Done!
 2. **Merging**:
    - The branch is clean, fully verified, and ready to be merged into `master`.
