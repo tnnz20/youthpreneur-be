@@ -49,6 +49,14 @@ type FindCatalogEnrollmentsInput struct {
 	Limit           int
 }
 
+// UpdateTrainingEnrollmentStatusInput holds the fields needed to update an
+// enrollment's status.
+type UpdateTrainingEnrollmentStatusInput struct {
+	Actor    entity.User
+	PublicID string
+	Status   string
+}
+
 // FindTrainingEnrollmentsResult is one page of enrollments plus the cursor for
 // the following page. NextCursor is zero when no further page exists.
 type FindTrainingEnrollmentsResult struct {
@@ -66,6 +74,8 @@ type TrainingEnrollmentUseCase interface {
 	// CancelEnrollment cancels the actor's active enrollment matching publicID.
 	// Admins may cancel any enrollment.
 	CancelEnrollment(ctx context.Context, actor entity.User, publicID string) error
+	// UpdateStatus updates the approval status of an enrollment. It is admin-only.
+	UpdateStatus(ctx context.Context, input UpdateTrainingEnrollmentStatusInput) (entity.TrainingEnrollment, error)
 	// FindMyEnrollments returns one page of the actor's enrollment history,
 	// including cancelled enrollments.
 	FindMyEnrollments(ctx context.Context, input FindTrainingEnrollmentsInput) (FindTrainingEnrollmentsResult, error)
@@ -124,6 +134,7 @@ func (u trainingEnrollmentUsecase) Enroll(
 			PublicID:     publicID,
 			UserID:       input.Actor.ID,
 			RegisterDate: &registerDate,
+			Status:       entity.TrainingEnrollmentStatusPending,
 			CreatedAt:    now,
 			UpdatedAt:    now,
 			Catalog:      &entity.TrainingCatalog{PublicID: catalogPublicID},
@@ -158,6 +169,33 @@ func (u trainingEnrollmentUsecase) CancelEnrollment(
 	}
 
 	return nil
+}
+
+// UpdateStatus updates the approval status of an enrollment.
+func (u trainingEnrollmentUsecase) UpdateStatus(
+	ctx context.Context,
+	input UpdateTrainingEnrollmentStatusInput,
+) (entity.TrainingEnrollment, error) {
+	if input.Actor.Role != entity.RoleAdmin {
+		return entity.TrainingEnrollment{}, ErrForbidden
+	}
+
+	publicID := strings.TrimSpace(input.PublicID)
+	if publicID == "" {
+		return entity.TrainingEnrollment{}, badRequest("public_id is required")
+	}
+
+	status := entity.TrainingEnrollmentStatus(strings.TrimSpace(input.Status))
+	if !entity.ValidTrainingEnrollmentStatus(status) {
+		return entity.TrainingEnrollment{}, badRequest("invalid training enrollment status")
+	}
+
+	updated, err := u.repo.UpdateTrainingEnrollmentStatus(ctx, publicID, status, u.now())
+	if err != nil {
+		return entity.TrainingEnrollment{}, mapTrainingEnrollmentRepositoryError(err)
+	}
+
+	return updated, nil
 }
 
 // FindMyEnrollments returns one page of the actor's enrollment history.

@@ -13,13 +13,12 @@ import (
 )
 
 const (
-	maxTrainingCatalogNameLength   = 255
-	maxTrainingCatalogPhoneLength  = 50
-	maxTrainingCatalogCategory     = 100
-	maxTrainingCatalogLinkLength   = 255
-	maxTrainingCatalogPeriodLength = 100
-	// trainingDateFormat is the ISO 8601 date format shared by training dates,
-	// periods, and register dates.
+	maxTrainingCatalogTitleLength     = 255
+	maxTrainingCatalogPhoneLength     = 50
+	maxTrainingCatalogLinkLength      = 255
+	maxTrainingCatalogMentorLength    = 255
+	maxTrainingCatalogThumbnailLength = 255
+	// trainingDateFormat is the ISO 8601 date format shared by training dates.
 	trainingDateFormat = "2006-01-02"
 )
 
@@ -31,39 +30,42 @@ var ErrTrainingCatalogNotFound = errors.New("usecase: training catalog not found
 // Actor must be an admin; the route and usecase both enforce it.
 type CreateTrainingCatalogInput struct {
 	Actor          entity.User
-	Name           string
+	Title          string
 	Description    string
 	PicPhone       string
 	Category       string
-	TrainingSlots  *int
+	MaxSlots       *int
 	TrainingStatus string
 	Link           string
-	TrainingDate   string
-	TrainingPeriod string
-	Speaker        string
+	Address        string
+	Thumbnail      string
+	StartDate      string
+	EndDate        string
+	Mentor         string
 }
 
 // UpdateTrainingCatalogInput carries the optional catalog fields to change. A
 // nil field keeps its current value.
 type UpdateTrainingCatalogInput struct {
-	Name           *string
+	Title          *string
 	Description    *string
 	PicPhone       *string
 	Category       *string
-	TrainingSlots  *int
+	MaxSlots       *int
 	TrainingStatus *string
 	Link           *string
-	TrainingDate   *string
-	TrainingPeriod *string
-	Speaker        *string
+	Address        *string
+	Thumbnail      *string
+	StartDate      *string
+	EndDate        *string
+	Mentor         *string
 }
 
 // FindTrainingCatalogsInput bounds and filters a public catalog listing.
 type FindTrainingCatalogsInput struct {
 	Category       string
 	TrainingStatus string
-	TrainingDate   string
-	TrainingPeriod string
+	StartDate      string
 	Cursor         int
 	Limit          int
 }
@@ -163,24 +165,31 @@ func (u trainingCatalogUsecase) FindTrainingCatalogs(
 	ctx context.Context,
 	input FindTrainingCatalogsInput,
 ) (FindTrainingCatalogsResult, error) {
+	var category entity.TrainingCategory
+	trimmedCat := strings.TrimSpace(input.Category)
+	if trimmedCat != "" {
+		category = entity.TrainingCategory(trimmedCat)
+		if !entity.ValidTrainingCategory(category) {
+			return FindTrainingCatalogsResult{}, badRequest("invalid category")
+		}
+	}
+
 	status, err := normalizeProcessStatus("training_status", input.TrainingStatus)
 	if err != nil {
 		return FindTrainingCatalogsResult{}, err
 	}
-	date, err := parseTrainingDate("training_date", input.TrainingDate)
+	date, err := parseTrainingDate("start_date", input.StartDate)
 	if err != nil {
 		return FindTrainingCatalogsResult{}, err
 	}
 
 	limit := clampLimit(input.Limit)
 	catalogs, err := u.repo.FindTrainingCatalogs(ctx, entity.TrainingCatalogFilter{
-		Category:       strings.TrimSpace(input.Category),
+		Category:       category,
 		TrainingStatus: status,
-		TrainingDate:   date,
-		TrainingPeriod: strings.TrimSpace(input.TrainingPeriod),
+		StartDate:      date,
 		Cursor:         input.Cursor,
-		// Fetch one extra row to detect whether a further page exists.
-		Limit: limit + 1,
+		Limit:          limit + 1,
 	})
 	if err != nil {
 		return FindTrainingCatalogsResult{}, fmt.Errorf("find training catalogs: %w", err)
@@ -272,10 +281,8 @@ func (u trainingCatalogUsecase) DeleteTrainingCatalog(
 	return nil
 }
 
-// buildTrainingCatalog validates and normalizes create input into an entity
-// with server-controlled timestamps.
 func buildTrainingCatalog(input CreateTrainingCatalogInput, now int64) (entity.TrainingCatalog, error) {
-	name, err := normalizeCatalogText("name", input.Name, maxTrainingCatalogNameLength)
+	title, err := normalizeCatalogText("title", input.Title, maxTrainingCatalogTitleLength)
 	if err != nil {
 		return entity.TrainingCatalog{}, err
 	}
@@ -283,15 +290,13 @@ func buildTrainingCatalog(input CreateTrainingCatalogInput, now int64) (entity.T
 	if err != nil {
 		return entity.TrainingCatalog{}, err
 	}
-	category, err := normalizeCatalogText("category", input.Category, maxTrainingCatalogCategory)
-	if err != nil {
-		return entity.TrainingCatalog{}, err
+
+	category := entity.TrainingCategory(strings.TrimSpace(input.Category))
+	if category != "" && !entity.ValidTrainingCategory(category) {
+		return entity.TrainingCatalog{}, badRequest("invalid category")
 	}
+
 	link, err := normalizeCatalogLink(input.Link)
-	if err != nil {
-		return entity.TrainingCatalog{}, err
-	}
-	period, err := normalizeCatalogText("training_period", input.TrainingPeriod, maxTrainingCatalogPeriodLength)
 	if err != nil {
 		return entity.TrainingCatalog{}, err
 	}
@@ -299,41 +304,57 @@ func buildTrainingCatalog(input CreateTrainingCatalogInput, now int64) (entity.T
 	if err != nil {
 		return entity.TrainingCatalog{}, err
 	}
-	slots, err := normalizeTrainingSlots(input.TrainingSlots)
+	slots, err := normalizeMaxSlots(input.MaxSlots)
 	if err != nil {
 		return entity.TrainingCatalog{}, err
 	}
-	date, err := parseTrainingDate("training_date", input.TrainingDate)
+	startDate, err := parseTrainingDate("start_date", input.StartDate)
+	if err != nil {
+		return entity.TrainingCatalog{}, err
+	}
+	endDate, err := parseTrainingDate("end_date", input.EndDate)
+	if err != nil {
+		return entity.TrainingCatalog{}, err
+	}
+	if startDate != nil && endDate != nil && endDate.Before(*startDate) {
+		return entity.TrainingCatalog{}, badRequest("end_date must be on or after start_date")
+	}
+	mentor, err := normalizeCatalogText("mentor", input.Mentor, maxTrainingCatalogMentorLength)
+	if err != nil {
+		return entity.TrainingCatalog{}, err
+	}
+	thumbnail, err := normalizeCatalogText("thumbnail", input.Thumbnail, maxTrainingCatalogThumbnailLength)
 	if err != nil {
 		return entity.TrainingCatalog{}, err
 	}
 
 	return entity.TrainingCatalog{
-		Name:           name,
+		Title:          title,
 		Description:    strings.TrimSpace(input.Description),
 		PicPhone:       picPhone,
 		Category:       category,
-		TrainingSlots:  slots,
+		MaxSlots:       slots,
 		TrainingStatus: status,
 		Link:           link,
-		TrainingDate:   date,
-		TrainingPeriod: period,
-		Speaker:        strings.TrimSpace(input.Speaker),
+		Address:        strings.TrimSpace(input.Address),
+		Thumbnail:      thumbnail,
+		StartDate:      startDate,
+		EndDate:        endDate,
+		Mentor:         mentor,
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}, nil
 }
 
-// buildTrainingCatalogUpdate validates and normalizes optional update input.
 func buildTrainingCatalogUpdate(input UpdateTrainingCatalogInput) (entity.TrainingCatalogUpdate, error) {
 	var update entity.TrainingCatalogUpdate
 
-	if input.Name != nil {
-		name, err := normalizeCatalogText("name", *input.Name, maxTrainingCatalogNameLength)
+	if input.Title != nil {
+		title, err := normalizeCatalogText("title", *input.Title, maxTrainingCatalogTitleLength)
 		if err != nil {
 			return entity.TrainingCatalogUpdate{}, err
 		}
-		update.Name = &name
+		update.Title = &title
 	}
 	if input.Description != nil {
 		description := strings.TrimSpace(*input.Description)
@@ -347,18 +368,19 @@ func buildTrainingCatalogUpdate(input UpdateTrainingCatalogInput) (entity.Traini
 		update.PicPhone = &picPhone
 	}
 	if input.Category != nil {
-		category, err := normalizeCatalogText("category", *input.Category, maxTrainingCatalogCategory)
-		if err != nil {
-			return entity.TrainingCatalogUpdate{}, err
+		catStr := strings.TrimSpace(*input.Category)
+		if catStr != "" && !entity.ValidTrainingCategory(entity.TrainingCategory(catStr)) {
+			return entity.TrainingCatalogUpdate{}, badRequest("invalid category")
 		}
-		update.Category = &category
+		cat := entity.TrainingCategory(catStr)
+		update.Category = &cat
 	}
-	if input.TrainingSlots != nil {
-		slots, err := normalizeTrainingSlots(input.TrainingSlots)
+	if input.MaxSlots != nil {
+		slots, err := normalizeMaxSlots(input.MaxSlots)
 		if err != nil {
 			return entity.TrainingCatalogUpdate{}, err
 		}
-		update.TrainingSlots = slots
+		update.MaxSlots = slots
 	}
 	if input.TrainingStatus != nil {
 		status, err := normalizeProcessStatus("training_status", *input.TrainingStatus)
@@ -374,45 +396,62 @@ func buildTrainingCatalogUpdate(input UpdateTrainingCatalogInput) (entity.Traini
 		}
 		update.Link = &link
 	}
-	if input.TrainingDate != nil {
-		date, err := parseTrainingDate("training_date", *input.TrainingDate)
+	if input.Address != nil {
+		address := strings.TrimSpace(*input.Address)
+		update.Address = &address
+	}
+	if input.Thumbnail != nil {
+		thumbnail, err := normalizeCatalogText("thumbnail", *input.Thumbnail, maxTrainingCatalogThumbnailLength)
 		if err != nil {
 			return entity.TrainingCatalogUpdate{}, err
 		}
-		update.TrainingDate = date
+		update.Thumbnail = &thumbnail
 	}
-	if input.TrainingPeriod != nil {
-		period, err := normalizeCatalogText("training_period", *input.TrainingPeriod, maxTrainingCatalogPeriodLength)
+	if input.StartDate != nil {
+		startDate, err := parseTrainingDate("start_date", *input.StartDate)
 		if err != nil {
 			return entity.TrainingCatalogUpdate{}, err
 		}
-		update.TrainingPeriod = &period
+		update.StartDate = startDate
 	}
-	if input.Speaker != nil {
-		speaker := strings.TrimSpace(*input.Speaker)
-		update.Speaker = &speaker
+	if input.EndDate != nil {
+		endDate, err := parseTrainingDate("end_date", *input.EndDate)
+		if err != nil {
+			return entity.TrainingCatalogUpdate{}, err
+		}
+		update.EndDate = endDate
+	}
+	if update.StartDate != nil && update.EndDate != nil {
+		if update.EndDate.Before(*update.StartDate) {
+			return entity.TrainingCatalogUpdate{}, badRequest("end_date must be on or after start_date")
+		}
+	}
+	if input.Mentor != nil {
+		mentor, err := normalizeCatalogText("mentor", *input.Mentor, maxTrainingCatalogMentorLength)
+		if err != nil {
+			return entity.TrainingCatalogUpdate{}, err
+		}
+		update.Mentor = &mentor
 	}
 
 	return update, nil
 }
 
-// isEmptyTrainingCatalogUpdate reports whether no update field was supplied.
-// UpdatedAt is excluded because the usecase sets it after this check.
 func isEmptyTrainingCatalogUpdate(update entity.TrainingCatalogUpdate) bool {
-	return update.Name == nil &&
+	return update.Title == nil &&
 		update.Description == nil &&
 		update.PicPhone == nil &&
 		update.Category == nil &&
-		update.TrainingSlots == nil &&
+		update.MaxSlots == nil &&
 		update.TrainingStatus == nil &&
 		update.Link == nil &&
-		update.TrainingDate == nil &&
-		update.TrainingPeriod == nil &&
-		update.Speaker == nil
+		update.Address == nil &&
+		update.Thumbnail == nil &&
+		update.StartDate == nil &&
+		update.EndDate == nil &&
+		update.Mentor == nil
 }
 
-// normalizeCatalogText trims a nullable text field and enforces its maximum
-// length.
 func normalizeCatalogText(field, value string, maxLength int) (string, error) {
 	value = strings.TrimSpace(value)
 	if len(value) > maxLength {
@@ -422,20 +461,17 @@ func normalizeCatalogText(field, value string, maxLength int) (string, error) {
 	return value, nil
 }
 
-// normalizeTrainingSlots validates an optional capacity. A nil value means
-// unlimited; a supplied value must be positive.
-func normalizeTrainingSlots(slots *int) (*int, error) {
+func normalizeMaxSlots(slots *int) (*int, error) {
 	if slots == nil {
 		return nil, nil
 	}
 	if *slots <= 0 {
-		return nil, badRequest("training_slots must be positive")
+		return nil, badRequest("max_slots must be positive")
 	}
 
 	return slots, nil
 }
 
-// normalizeCatalogLink validates an optional http or https URL.
 func normalizeCatalogLink(value string) (string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -453,8 +489,6 @@ func normalizeCatalogLink(value string) (string, error) {
 	return value, nil
 }
 
-// parseTrainingDate parses an optional `YYYY-MM-DD` date. An empty value means
-// unset.
 func parseTrainingDate(field, value string) (*time.Time, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {

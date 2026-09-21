@@ -21,6 +21,12 @@ type fakeTrainingEnrollmentRepository struct {
 	lastCancelPublicID string
 	lastCancelUserID   int
 
+	updateStatusResult       entity.TrainingEnrollment
+	updateStatusErr          error
+	lastUpdateStatusPublicID string
+	lastUpdateStatus         entity.TrainingEnrollmentStatus
+	lastUpdateStatusAt       int64
+
 	listResult []entity.TrainingEnrollment
 	listErr    error
 	lastFilter entity.TrainingEnrollmentFilter
@@ -53,6 +59,22 @@ func (f *fakeTrainingEnrollmentRepository) CancelTrainingEnrollment(
 	f.lastCancelUserID = userID
 
 	return f.cancelErr
+}
+
+func (f *fakeTrainingEnrollmentRepository) UpdateTrainingEnrollmentStatus(
+	_ context.Context,
+	publicID string,
+	status entity.TrainingEnrollmentStatus,
+	now int64,
+) (entity.TrainingEnrollment, error) {
+	f.lastUpdateStatusPublicID = publicID
+	f.lastUpdateStatus = status
+	f.lastUpdateStatusAt = now
+	if f.updateStatusErr != nil {
+		return entity.TrainingEnrollment{}, f.updateStatusErr
+	}
+
+	return f.updateStatusResult, nil
 }
 
 func (f *fakeTrainingEnrollmentRepository) FindTrainingEnrollments(
@@ -110,8 +132,81 @@ func TestEnrollAssignsActorAndRegisterDate(t *testing.T) {
 	if repo.lastCreated.RegisterDate.Hour() != 0 || repo.lastCreated.RegisterDate.Minute() != 0 {
 		t.Errorf("register date = %v, want date-only", repo.lastCreated.RegisterDate)
 	}
+	if repo.lastCreated.Status != entity.TrainingEnrollmentStatusPending {
+		t.Errorf("status = %q, want pending", repo.lastCreated.Status)
+	}
 	if !publicIDPattern.MatchString(repo.lastCreated.PublicID) {
 		t.Errorf("public id = %q, want YTP- plus six digits", repo.lastCreated.PublicID)
+	}
+}
+
+func TestUpdateTrainingEnrollmentStatusRequiresAdmin(t *testing.T) {
+	repo := &fakeTrainingEnrollmentRepository{}
+	uc := usecase.NewTrainingEnrollmentUseCase(repo, &fakeTrainingCatalogRepository{})
+
+	_, err := uc.UpdateStatus(context.Background(), usecase.UpdateTrainingEnrollmentStatusInput{
+		Actor:    memberActor(),
+		PublicID: "YTP-000111",
+		Status:   "accepted",
+	})
+	if !errors.Is(err, usecase.ErrForbidden) {
+		t.Fatalf("UpdateStatus() error = %v, want ErrForbidden", err)
+	}
+}
+
+func TestUpdateTrainingEnrollmentStatusValidation(t *testing.T) {
+	repo := &fakeTrainingEnrollmentRepository{}
+	uc := usecase.NewTrainingEnrollmentUseCase(repo, &fakeTrainingCatalogRepository{})
+
+	cases := []struct {
+		name     string
+		publicID string
+		status   string
+	}{
+		{name: "empty public id", publicID: "", status: "accepted"},
+		{name: "empty status", publicID: "YTP-000111", status: ""},
+		{name: "invalid status", publicID: "YTP-000111", status: "bogus"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := uc.UpdateStatus(context.Background(), usecase.UpdateTrainingEnrollmentStatusInput{
+				Actor:    adminActor(),
+				PublicID: tc.publicID,
+				Status:   tc.status,
+			})
+			if !errors.Is(err, usecase.ErrBadRequest) {
+				t.Fatalf("UpdateStatus() error = %v, want ErrBadRequest", err)
+			}
+		})
+	}
+}
+
+func TestUpdateTrainingEnrollmentStatusSuccess(t *testing.T) {
+	repo := &fakeTrainingEnrollmentRepository{
+		updateStatusResult: entity.TrainingEnrollment{
+			PublicID: "YTP-000111",
+			Status:   entity.TrainingEnrollmentStatusAccepted,
+		},
+	}
+	uc := usecase.NewTrainingEnrollmentUseCase(repo, &fakeTrainingCatalogRepository{})
+
+	updated, err := uc.UpdateStatus(context.Background(), usecase.UpdateTrainingEnrollmentStatusInput{
+		Actor:    adminActor(),
+		PublicID: " YTP-000111 ",
+		Status:   " accepted ",
+	})
+	if err != nil {
+		t.Fatalf("UpdateStatus() error = %v", err)
+	}
+	if repo.lastUpdateStatusPublicID != "YTP-000111" {
+		t.Errorf("public id = %q, want YTP-000111", repo.lastUpdateStatusPublicID)
+	}
+	if repo.lastUpdateStatus != entity.TrainingEnrollmentStatusAccepted {
+		t.Errorf("status = %q, want accepted", repo.lastUpdateStatus)
+	}
+	if updated.Status != entity.TrainingEnrollmentStatusAccepted {
+		t.Errorf("updated status = %q, want accepted", updated.Status)
 	}
 }
 
