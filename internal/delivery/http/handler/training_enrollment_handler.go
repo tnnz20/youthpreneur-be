@@ -68,6 +68,31 @@ func (h *TrainingEnrollmentHandler) Cancel(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// UpdateStatus handles PATCH /training-enrollments/{publicID}/status.
+func (h *TrainingEnrollmentHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
+	var request model.UpdateTrainingEnrollmentStatusRequest
+	if !h.decode(w, r, &request) {
+		return
+	}
+
+	actor, ok := h.actor(w, r)
+	if !ok {
+		return
+	}
+
+	enrollment, err := h.useCase.UpdateStatus(r.Context(), usecase.UpdateTrainingEnrollmentStatusInput{
+		Actor:    actor,
+		PublicID: r.PathValue("publicID"),
+		Status:   request.Status,
+	})
+	if err != nil {
+		h.writeUsecaseError(w, err)
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, model.ToTrainingEnrollmentResponse(enrollment))
+}
+
 // ListMine handles GET /training-enrollments/my.
 func (h *TrainingEnrollmentHandler) ListMine(w http.ResponseWriter, r *http.Request) {
 	actor, ok := h.actor(w, r)

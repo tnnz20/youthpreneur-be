@@ -35,6 +35,19 @@ type fakeTrainingEnrollmentUseCase struct {
 	catalogResult    usecase.FindTrainingEnrollmentsResult
 	catalogErr       error
 	lastCatalogInput usecase.FindCatalogEnrollmentsInput
+
+	updateStatusResult    entity.TrainingEnrollment
+	updateStatusErr       error
+	lastUpdateStatusInput usecase.UpdateTrainingEnrollmentStatusInput
+}
+
+func (f *fakeTrainingEnrollmentUseCase) UpdateStatus(
+	_ context.Context,
+	input usecase.UpdateTrainingEnrollmentStatusInput,
+) (entity.TrainingEnrollment, error) {
+	f.lastUpdateStatusInput = input
+
+	return f.updateStatusResult, f.updateStatusErr
 }
 
 func (f *fakeTrainingEnrollmentUseCase) Enroll(
@@ -94,7 +107,8 @@ func TestCreateTrainingEnrollmentUsesActor(t *testing.T) {
 	uc := &fakeTrainingEnrollmentUseCase{enrollResult: entity.TrainingEnrollment{
 		PublicID:     "YTP-000111",
 		UserPublicID: "YTP-000007",
-		Catalog:      &entity.TrainingCatalog{PublicID: "YTP-000004", Name: "Kelas"},
+		Status:       entity.TrainingEnrollmentStatusPending,
+		Catalog:      &entity.TrainingCatalog{PublicID: "YTP-000004", Title: "Kelas"},
 	}}
 	actor := entity.User{ID: 7, PublicID: "YTP-000007", Role: entity.RoleMember}
 
@@ -114,6 +128,37 @@ func TestCreateTrainingEnrollmentUsesActor(t *testing.T) {
 	}
 	if body.Catalog == nil || body.Catalog.PublicID != "YTP-000004" {
 		t.Errorf("catalog = %+v, want joined catalog", body.Catalog)
+	}
+	if body.Status != "pending" {
+		t.Errorf("status = %q, want pending", body.Status)
+	}
+}
+
+func TestUpdateTrainingEnrollmentStatus(t *testing.T) {
+	uc := &fakeTrainingEnrollmentUseCase{
+		updateStatusResult: entity.TrainingEnrollment{
+			PublicID: "YTP-000111",
+			Status:   entity.TrainingEnrollmentStatusAccepted,
+		},
+	}
+	actor := entity.User{ID: 9, Role: entity.RoleAdmin}
+
+	rec := serve(t, newTrainingEnrollmentRouter(uc, enterpriseIdentity(actor)),
+		http.MethodPatch, "/training-enrollments/YTP-000111/status", `{"status":"accepted"}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body %s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if uc.lastUpdateStatusInput.PublicID != "YTP-000111" || uc.lastUpdateStatusInput.Status != "accepted" {
+		t.Errorf("status input = %+v, want YTP-000111 and accepted", uc.lastUpdateStatusInput)
+	}
+
+	var body model.TrainingEnrollmentResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.Status != "accepted" {
+		t.Errorf("status = %q, want accepted", body.Status)
 	}
 }
 
@@ -245,5 +290,8 @@ func TestTrainingEnrollmentRoutePolicy(t *testing.T) {
 	}
 	if rec := serveWithCookie(t, router, http.MethodGet, "/training-enrollments/catalog/YTP-000004", "", "good"); rec.Code != http.StatusForbidden {
 		t.Fatalf("member catalog-history status = %d, want %d", rec.Code, http.StatusForbidden)
+	}
+	if rec := serveWithCookie(t, router, http.MethodPatch, "/training-enrollments/YTP-000111/status", `{"status":"accepted"}`, "good"); rec.Code != http.StatusForbidden {
+		t.Fatalf("member update-status status = %d, want %d", rec.Code, http.StatusForbidden)
 	}
 }

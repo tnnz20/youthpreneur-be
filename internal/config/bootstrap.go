@@ -13,6 +13,7 @@ import (
 	"github.com/tnnz20/youthpreneur-be/internal/delivery/http/route"
 	"github.com/tnnz20/youthpreneur-be/internal/repository"
 	"github.com/tnnz20/youthpreneur-be/internal/repository/persistence"
+	"github.com/tnnz20/youthpreneur-be/internal/service"
 	"github.com/tnnz20/youthpreneur-be/internal/token"
 	"github.com/tnnz20/youthpreneur-be/internal/usecase"
 )
@@ -51,9 +52,11 @@ func Bootstrap(ctx context.Context, cfg Config, logger *slog.Logger) (http.Handl
 	enterpriseUsecase := usecase.NewEnterpriseUseCase(enterpriseRepo)
 	enterpriseHandler := handler.NewEnterpriseHandler(logger, enterpriseUsecase, middleware.IdentityFromContext)
 
+	uploadService := service.NewUploadService(cfg.UploadDir)
+
 	catalogRepo := persistence.NewTrainingCatalogRepository(db)
 	catalogUsecase := usecase.NewTrainingCatalogUseCase(catalogRepo)
-	catalogHandler := handler.NewTrainingCatalogHandler(logger, catalogUsecase, middleware.IdentityFromContext)
+	catalogHandler := handler.NewTrainingCatalogHandler(logger, catalogUsecase, uploadService, middleware.IdentityFromContext)
 
 	enrollmentRepo := persistence.NewTrainingEnrollmentRepository(db)
 	enrollmentUsecase := usecase.NewTrainingEnrollmentUseCase(enrollmentRepo, catalogRepo)
@@ -79,6 +82,7 @@ func Bootstrap(ctx context.Context, cfg Config, logger *slog.Logger) (http.Handl
 		EnterpriseHandler:         enterpriseHandler,
 		TrainingCatalogHandler:    catalogHandler,
 		TrainingEnrollmentHandler: enrollmentHandler,
+		UploadDir:                 cfg.UploadDir,
 		Authenticate:              authenticator.Authenticate,
 		RequireAdmin:              authenticator.RequireAdmin,
 		RequireSelf:               authenticator.RequireSelf,
