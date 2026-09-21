@@ -1,5 +1,7 @@
 package model
 
+import "github.com/tnnz20/youthpreneur-be/internal/entity"
+
 // LoginRequest is the JSON body for POST /auth/login.
 type LoginRequest struct {
 	Email    string `json:"email"`
@@ -19,4 +21,20 @@ type MeResponse struct {
 	Email    string             `json:"email"`
 	Role     string             `json:"role"`
 	Profile  *MeProfileResponse `json:"profile"`
+}
+
+// ToMeResponse maps the current identity to the minimal GET /auth/me shape.
+// A nil profile serializes as JSON null.
+func ToMeResponse(user entity.User) MeResponse {
+	response := MeResponse{
+		PublicID: user.PublicID,
+		Email:    user.Email,
+		Role:     string(user.Role),
+	}
+
+	if user.Profile != nil {
+		response.Profile = &MeProfileResponse{FullName: user.Profile.FullName}
+	}
+
+	return response
 }

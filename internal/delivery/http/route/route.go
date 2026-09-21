@@ -57,6 +57,7 @@ func (rt *Router) Register(mux *http.ServeMux) {
 	rt.register(mux, "POST /enterprises", authenticated, rt.deps.EnterpriseHandler.Create)
 	rt.register(mux, "GET /enterprises", authenticated, rt.deps.EnterpriseHandler.List)
 	rt.register(mux, "GET /enterprises/{publicID}", authenticated, rt.deps.EnterpriseHandler.Get)
+	rt.register(mux, "GET /enterprises/{publicID}/audit-logs", authenticated, rt.deps.EnterpriseHandler.ListAuditLogs)
 	rt.register(mux, "PATCH /enterprises/{publicID}", authenticated, rt.deps.EnterpriseHandler.Update)
 	rt.register(mux, "DELETE /enterprises/{publicID}", authenticated, rt.deps.EnterpriseHandler.Delete)
 

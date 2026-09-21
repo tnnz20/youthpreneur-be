@@ -1,5 +1,7 @@
 package model
 
+import "github.com/tnnz20/youthpreneur-be/internal/entity"
+
 // CreateEnterpriseRequest is the JSON body for creating an enterprise. The
 // owner and initial status are server-controlled and never read from the body.
 type CreateEnterpriseRequest struct {
@@ -96,4 +98,114 @@ type PublicEnterpriseResponse struct {
 type PublicEnterpriseListResponse struct {
 	Enterprises []PublicEnterpriseResponse `json:"enterprises"`
 	NextCursor  string                     `json:"next_cursor,omitempty"`
+}
+
+// EnterpriseAuditEventResponse is the JSON representation of an enterprise audit event.
+type EnterpriseAuditEventResponse struct {
+	ID            int            `json:"id"`
+	ActorPublicID string         `json:"actor_public_id"`
+	ActorEmail    string         `json:"actor_email"`
+	ActorName     string         `json:"actor_name"`
+	Action        string         `json:"action"`
+	ChangedFields map[string]any `json:"changed_fields"`
+	CreatedAt     int64          `json:"created_at"`
+}
+
+// EnterpriseAuditListResponse is one page of enterprise audit events with the cursor
+// for the next page.
+type EnterpriseAuditListResponse struct {
+	Events     []EnterpriseAuditEventResponse `json:"events"`
+	NextCursor string                         `json:"next_cursor,omitempty"`
+}
+
+// ToEnterpriseResponse converts an entity.Enterprise to an EnterpriseResponse.
+func ToEnterpriseResponse(enterprise entity.Enterprise) EnterpriseResponse {
+	return EnterpriseResponse{
+		PublicID:             enterprise.PublicID,
+		UserPublicID:         enterprise.UserPublicID,
+		FullName:             enterprise.OwnerFullName,
+		EnterpriseName:       enterprise.EnterpriseName,
+		Description:          optionalString(enterprise.Description),
+		Address:              optionalString(enterprise.Address),
+		FocusCommodity:       optionalString(enterprise.FocusCommodity),
+		DisporaSupport:       optionalString(enterprise.DisporaSupport),
+		BusinessSector:       string(enterprise.BusinessSector),
+		LegalStatus:          optionalString(string(enterprise.LegalStatus)),
+		BusinessDigitization: optionalString(string(enterprise.BusinessDigitization)),
+		InterventionNeeds:    optionalString(string(enterprise.InterventionNeeds)),
+		TrainingStatus:       optionalString(string(enterprise.TrainingStatus)),
+		MentoringStatus:      optionalString(string(enterprise.MentoringStatus)),
+		CapitalAccess:        optionalString(string(enterprise.CapitalAccess)),
+		Partnership:          optionalString(string(enterprise.Partnership)),
+		InitialTurnover:      enterprise.InitialTurnover,
+		CurrentTurnover:      enterprise.CurrentTurnover,
+		District:             optionalString(enterprise.District),
+		Status:               string(enterprise.Status),
+		CreatedAt:            enterprise.CreatedAt,
+		UpdatedAt:            enterprise.UpdatedAt,
+	}
+}
+
+// ToEnterpriseResponses converts a slice of entity.Enterprise to a slice of EnterpriseResponse.
+func ToEnterpriseResponses(enterprises []entity.Enterprise) []EnterpriseResponse {
+	responses := make([]EnterpriseResponse, 0, len(enterprises))
+	for _, enterprise := range enterprises {
+		responses = append(responses, ToEnterpriseResponse(enterprise))
+	}
+
+	return responses
+}
+
+// ToPublicEnterpriseResponse converts an entity.PublicEnterprise to a PublicEnterpriseResponse.
+func ToPublicEnterpriseResponse(item entity.PublicEnterprise) PublicEnterpriseResponse {
+	return PublicEnterpriseResponse{
+		PublicID:          item.PublicID,
+		EnterpriseName:    item.EnterpriseName,
+		FullName:          item.OwnerFullName,
+		BusinessSector:    string(item.BusinessSector),
+		District:          optionalString(item.District),
+		Description:       optionalString(item.Description),
+		FocusCommodity:    optionalString(item.FocusCommodity),
+		DisporaSupport:    optionalString(item.DisporaSupport),
+		InterventionNeeds: optionalString(string(item.InterventionNeeds)),
+		CreatedAt:         item.CreatedAt,
+	}
+}
+
+// ToPublicEnterpriseResponses converts a slice of entity.PublicEnterprise to a slice of PublicEnterpriseResponse.
+func ToPublicEnterpriseResponses(items []entity.PublicEnterprise) []PublicEnterpriseResponse {
+	responses := make([]PublicEnterpriseResponse, 0, len(items))
+	for _, item := range items {
+		responses = append(responses, ToPublicEnterpriseResponse(item))
+	}
+
+	return responses
+}
+
+// ToEnterpriseAuditEventResponse converts an entity.EnterpriseAuditEventView to an EnterpriseAuditEventResponse.
+func ToEnterpriseAuditEventResponse(event entity.EnterpriseAuditEventView) EnterpriseAuditEventResponse {
+	changedFields := event.ChangedFields
+	if changedFields == nil {
+		changedFields = map[string]any{}
+	}
+
+	return EnterpriseAuditEventResponse{
+		ID:            event.ID,
+		ActorPublicID: event.ActorPublicID,
+		ActorEmail:    event.ActorEmail,
+		ActorName:     event.ActorName,
+		Action:        string(event.Action),
+		ChangedFields: changedFields,
+		CreatedAt:     event.CreatedAt,
+	}
+}
+
+// ToEnterpriseAuditEventResponses converts a slice of entity.EnterpriseAuditEventView to a slice of EnterpriseAuditEventResponse.
+func ToEnterpriseAuditEventResponses(events []entity.EnterpriseAuditEventView) []EnterpriseAuditEventResponse {
+	responses := make([]EnterpriseAuditEventResponse, 0, len(events))
+	for _, event := range events {
+		responses = append(responses, ToEnterpriseAuditEventResponse(event))
+	}
+
+	return responses
 }

@@ -76,6 +76,23 @@ const findPublicEnterprisesQuery = `
 	ORDER BY e.id DESC
 	LIMIT $6`
 
+const findEnterpriseAuditEventsQuery = `
+	SELECT
+		a.id,
+		COALESCE(u.public_id, ''),
+		COALESCE(u.email, ''),
+		COALESCE(p.full_name, ''),
+		a.action,
+		a.changed_fields,
+		a.created_at
+	FROM enterprise_audit_events a
+	LEFT JOIN users u ON u.id = a.actor_user_id
+	LEFT JOIN user_profiles p ON p.user_id = u.id
+	WHERE a.enterprise_id = $1
+	  AND ($2::int = 0 OR a.id < $2)
+	ORDER BY a.id DESC
+	LIMIT $3`
+
 type enterpriseRepository struct {
 	db *sql.DB
 }
@@ -259,6 +276,75 @@ func (r enterpriseRepository) FindPublicEnterprises(
 	}
 
 	return items, nil
+}
+
+func (r enterpriseRepository) FindEnterpriseAuditEvents(
+	ctx context.Context,
+	filter entity.EnterpriseAuditFilter,
+) ([]entity.EnterpriseAuditEventView, error) {
+	var enterpriseID int
+	err := r.db.QueryRowContext(ctx, `
+		SELECT id
+		FROM enterprises
+		WHERE public_id = $1
+		  AND deleted_at IS NULL
+		  AND ($2::int = 0 OR user_id = $2)`,
+		filter.PublicID,
+		filter.OwnerID,
+	).Scan(&enterpriseID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, repository.ErrEnterpriseNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("verify enterprise: %w", err)
+	}
+
+	rows, err := r.db.QueryContext(ctx, findEnterpriseAuditEventsQuery,
+		enterpriseID,
+		filter.Cursor,
+		filter.Limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query enterprise audit events: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	events := []entity.EnterpriseAuditEventView{}
+	for rows.Next() {
+		var (
+			event         entity.EnterpriseAuditEventView
+			action        string
+			changedFields []byte
+		)
+		if err := rows.Scan(
+			&event.ID,
+			&event.ActorPublicID,
+			&event.ActorEmail,
+			&event.ActorName,
+			&action,
+			&changedFields,
+			&event.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan enterprise audit event: %w", err)
+		}
+
+		event.Action = entity.AuditAction(action)
+		if len(changedFields) > 0 {
+			if err := json.Unmarshal(changedFields, &event.ChangedFields); err != nil {
+				return nil, fmt.Errorf("unmarshal changed fields: %w", err)
+			}
+		}
+		if event.ChangedFields == nil {
+			event.ChangedFields = map[string]any{}
+		}
+
+		events = append(events, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate enterprise audit events: %w", err)
+	}
+
+	return events, nil
 }
 
 func (r enterpriseRepository) UpdateEnterprise(

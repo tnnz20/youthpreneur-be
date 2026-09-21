@@ -41,6 +41,9 @@ type EnterpriseRepository interface {
 	// FindPublicEnterprises returns active enterprises matching filter ordered
 	// newest first (descending id) for the public showcase.
 	FindPublicEnterprises(ctx context.Context, filter entity.PublicEnterpriseFilter) ([]entity.PublicEnterprise, error)
+	// FindEnterpriseAuditEvents returns audit events for the enterprise matching
+	// publicID within ownerID scope, ordered newest first (descending id).
+	FindEnterpriseAuditEvents(ctx context.Context, filter entity.EnterpriseAuditFilter) ([]entity.EnterpriseAuditEventView, error)
 	// SoftDeleteEnterprise sets deleted_at for the active enterprise matching
 	// publicID within ownerID scope and writes its audit event in the same
 	// transaction.

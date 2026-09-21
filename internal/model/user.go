@@ -1,5 +1,7 @@
 package model
 
+import "github.com/tnnz20/youthpreneur-be/internal/entity"
+
 // CreateUserRequest is the JSON body for creating a user.
 type CreateUserRequest struct {
 	Email     string `json:"email"`
@@ -75,4 +77,43 @@ type UserListResponse struct {
 // ErrorResponse is the JSON body returned for failed requests.
 type ErrorResponse struct {
 	Error string `json:"error"`
+}
+
+// ToUserResponse converts an entity.User to a UserResponse.
+func ToUserResponse(user entity.User) UserResponse {
+	response := UserResponse{
+		PublicID:  user.PublicID,
+		Email:     user.Email,
+		Role:      string(user.Role),
+		IsActive:  user.IsActive,
+		CreatedAt: user.CreatedAt,
+		UpdatedAt: user.UpdatedAt,
+	}
+
+	if user.Profile != nil {
+		profile := &ProfileResponse{
+			FullName: user.Profile.FullName,
+			NIK:      user.Profile.NIK,
+			Gender:   string(user.Profile.Gender),
+			District: user.Profile.District,
+			Phone:    user.Profile.Phone,
+			Address:  user.Profile.Address,
+		}
+		if user.Profile.BirthDate != nil {
+			profile.BirthDate = user.Profile.BirthDate.Format(DateFormat)
+		}
+		response.Profile = profile
+	}
+
+	return response
+}
+
+// ToUserResponses converts a slice of entity.User to a slice of UserResponse.
+func ToUserResponses(users []entity.User) []UserResponse {
+	responses := make([]UserResponse, 0, len(users))
+	for _, user := range users {
+		responses = append(responses, ToUserResponse(user))
+	}
+
+	return responses
 }

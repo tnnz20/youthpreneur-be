@@ -69,6 +69,7 @@ bearer header. Passwords and token values never appear in responses or logs.
 | `POST /enterprises` | Authenticated; any member or admin |
 | `GET /enterprises` | Authenticated; members see their own, admins see all |
 | `GET /enterprises/{publicID}` | Authenticated; owner or admin |
+| `GET /enterprises/{publicID}/audit-logs` | Authenticated; owner or admin |
 | `PATCH /enterprises/{publicID}` | Authenticated; owner (limited fields) or admin |
 | `DELETE /enterprises/{publicID}` | Authenticated; owner or admin |
 | `GET /training-catalog` | Public |
@@ -966,6 +967,63 @@ deleted again.
 
 ---
 
+### 20. List Enterprise Audit Logs
+
+List the audit event history (`create`, `update`, `delete`) for an enterprise, ordered newest first with cursor pagination.
+
+**Endpoint:** `GET /enterprises/{publicID}/audit-logs`
+
+**Authentication:** Authenticated; owner or admin. A member receives `404` for an enterprise they do not own.
+
+**Path Parameter:** `publicID` uses `TPN-` plus six random decimal digits (`TPN-DDDDDD`).
+
+**Query Parameters:**
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `cursor` | integer string | No | Return audit events with internal id less than cursor (newest first) |
+| `limit` | integer | No | Page size, default 20, maximum 100 |
+
+**Response:**
+
+```json
+{
+  "events": [
+    {
+      "id": 15,
+      "actor_public_id": "YTP-482910",
+      "actor_email": "alice@example.com",
+      "actor_name": "Alice Example",
+      "action": "update",
+      "changed_fields": {
+        "current_turnover": "2000.00"
+      },
+      "created_at": 1700000050
+    },
+    {
+      "id": 12,
+      "actor_public_id": "YTP-482910",
+      "actor_email": "alice@example.com",
+      "actor_name": "Alice Example",
+      "action": "create",
+      "changed_fields": {
+        "enterprise_name": "Warung Kopi"
+      },
+      "created_at": 1700000000
+    }
+  ],
+  "next_cursor": "12"
+}
+```
+
+`next_cursor` is omitted when no next page exists.
+
+**Status Code:** `200 OK`
+
+**Errors:** `400 Bad Request`, `401 Unauthorized`, `404 Not Found`, `500 Internal Server Error`
+
+---
+
 ## Training Catalog and Enrollment Endpoints
 
 Training catalog entries are an independent aggregate with a generated
@@ -989,7 +1047,7 @@ the catalog row with `SELECT ... FOR UPDATE`, then counts active enrollments so
 
 ---
 
-### 20. List Training Catalog
+### 21. List Training Catalog
 
 List active catalog entries with optional filters and cursor pagination.
 
@@ -1043,7 +1101,7 @@ the returned value and must not construct cursors.
 
 ---
 
-### 21. Get Training Catalog
+### 22. Get Training Catalog
 
 Retrieve one active catalog entry by public ID.
 
@@ -1060,7 +1118,7 @@ serialize as JSON `null` when unset.
 
 ---
 
-### 22. Create Training Catalog
+### 23. Create Training Catalog
 
 Create a catalog entry.
 
@@ -1092,7 +1150,7 @@ Create a catalog entry.
 
 ---
 
-### 23. Update Training Catalog
+### 24. Update Training Catalog
 
 Partially update an active catalog entry. Omitted fields keep their current
 value; an empty string clears a nullable string field. `training_date` may be
@@ -1115,7 +1173,7 @@ supplied, must be positive. At least one field is required.
 
 ---
 
-### 24. Update Training Catalog Status
+### 25. Update Training Catalog Status
 
 Change only the training status of an active catalog entry.
 
@@ -1138,7 +1196,7 @@ Change only the training status of an active catalog entry.
 
 ---
 
-### 25. Soft Delete Training Catalog
+### 26. Soft Delete Training Catalog
 
 Soft delete an active catalog entry.
 
@@ -1157,7 +1215,7 @@ enrollments are retained.
 
 ---
 
-### 26. Enroll in Training
+### 27. Enroll in Training
 
 Enroll the authenticated user in a catalog offering.
 
@@ -1209,7 +1267,7 @@ soft deleted.
 
 ---
 
-### 27. Cancel Training Enrollment
+### 28. Cancel Training Enrollment
 
 Cancel the caller's active enrollment.
 
@@ -1228,7 +1286,7 @@ enroll again afterward.
 
 ---
 
-### 28. My Training Enrollment History
+### 29. My Training Enrollment History
 
 List the current user's enrollment history, including cancelled enrollments.
 
@@ -1266,7 +1324,7 @@ List the current user's enrollment history, including cancelled enrollments.
 
 ---
 
-### 29. All Training Enrollment History
+### 30. All Training Enrollment History
 
 List every user's enrollment history, including cancelled enrollments.
 
@@ -1285,7 +1343,7 @@ List every user's enrollment history, including cancelled enrollments.
 
 ---
 
-### 30. Catalog Training Enrollment History
+### 31. Catalog Training Enrollment History
 
 List one catalog's enrollment history, including cancelled enrollments.
 

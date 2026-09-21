@@ -69,7 +69,7 @@ func (h *EnterpriseHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.writeJSON(w, http.StatusCreated, toEnterpriseResponse(enterprise))
+	h.writeJSON(w, http.StatusCreated, model.ToEnterpriseResponse(enterprise))
 }
 
 // List handles GET /enterprises.
@@ -119,7 +119,7 @@ func (h *EnterpriseHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response := model.EnterpriseListResponse{Enterprises: toEnterpriseResponses(result.Enterprises)}
+	response := model.EnterpriseListResponse{Enterprises: model.ToEnterpriseResponses(result.Enterprises)}
 	if result.NextCursor != 0 {
 		response.NextCursor = strconv.Itoa(result.NextCursor)
 	}
@@ -161,7 +161,7 @@ func (h *EnterpriseHandler) ListPublic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response := model.PublicEnterpriseListResponse{Enterprises: toPublicEnterpriseResponses(result.Enterprises)}
+	response := model.PublicEnterpriseListResponse{Enterprises: model.ToPublicEnterpriseResponses(result.Enterprises)}
 	if result.NextCursor != 0 {
 		response.NextCursor = strconv.Itoa(result.NextCursor)
 	}
@@ -182,7 +182,47 @@ func (h *EnterpriseHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, toEnterpriseResponse(enterprise))
+	h.writeJSON(w, http.StatusOK, model.ToEnterpriseResponse(enterprise))
+}
+
+// ListAuditLogs handles GET /enterprises/{publicID}/audit-logs.
+func (h *EnterpriseHandler) ListAuditLogs(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+
+	cursor, err := parseCursor(query.Get("cursor"))
+	if err != nil {
+		h.writeError(w, http.StatusBadRequest, "invalid cursor")
+		return
+	}
+
+	limit, err := parseLimit(query.Get("limit"))
+	if err != nil {
+		h.writeError(w, http.StatusBadRequest, "invalid limit")
+		return
+	}
+
+	actor, ok := h.actor(w, r)
+	if !ok {
+		return
+	}
+
+	result, err := h.useCase.FindEnterpriseAuditLogs(r.Context(), usecase.FindEnterpriseAuditLogsInput{
+		Actor:    actor,
+		PublicID: r.PathValue("publicID"),
+		Cursor:   cursor,
+		Limit:    limit,
+	})
+	if err != nil {
+		h.writeUsecaseError(w, err)
+		return
+	}
+
+	response := model.EnterpriseAuditListResponse{Events: model.ToEnterpriseAuditEventResponses(result.Events)}
+	if result.NextCursor != 0 {
+		response.NextCursor = strconv.Itoa(result.NextCursor)
+	}
+
+	h.writeJSON(w, http.StatusOK, response)
 }
 
 // Update handles PATCH /enterprises/{publicID}.
@@ -221,7 +261,7 @@ func (h *EnterpriseHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, toEnterpriseResponse(enterprise))
+	h.writeJSON(w, http.StatusOK, model.ToEnterpriseResponse(enterprise))
 }
 
 // Delete handles DELETE /enterprises/{publicID}.
@@ -278,74 +318,4 @@ func (h *EnterpriseHandler) writeUsecaseError(w http.ResponseWriter, err error) 
 		h.logger.Error("enterprise request failed", "error", err)
 		h.writeError(w, http.StatusInternalServerError, "internal server error")
 	}
-}
-
-func toEnterpriseResponse(enterprise entity.Enterprise) model.EnterpriseResponse {
-	return model.EnterpriseResponse{
-		PublicID:             enterprise.PublicID,
-		UserPublicID:         enterprise.UserPublicID,
-		FullName:             enterprise.OwnerFullName,
-		EnterpriseName:       enterprise.EnterpriseName,
-		Description:          optionalString(enterprise.Description),
-		Address:              optionalString(enterprise.Address),
-		FocusCommodity:       optionalString(enterprise.FocusCommodity),
-		DisporaSupport:       optionalString(enterprise.DisporaSupport),
-		BusinessSector:       string(enterprise.BusinessSector),
-		LegalStatus:          optionalString(string(enterprise.LegalStatus)),
-		BusinessDigitization: optionalString(string(enterprise.BusinessDigitization)),
-		InterventionNeeds:    optionalString(string(enterprise.InterventionNeeds)),
-		TrainingStatus:       optionalString(string(enterprise.TrainingStatus)),
-		MentoringStatus:      optionalString(string(enterprise.MentoringStatus)),
-		CapitalAccess:        optionalString(string(enterprise.CapitalAccess)),
-		Partnership:          optionalString(string(enterprise.Partnership)),
-		InitialTurnover:      enterprise.InitialTurnover,
-		CurrentTurnover:      enterprise.CurrentTurnover,
-		District:             optionalString(enterprise.District),
-		Status:               string(enterprise.Status),
-		CreatedAt:            enterprise.CreatedAt,
-		UpdatedAt:            enterprise.UpdatedAt,
-	}
-}
-
-func toPublicEnterpriseResponse(item entity.PublicEnterprise) model.PublicEnterpriseResponse {
-	return model.PublicEnterpriseResponse{
-		PublicID:          item.PublicID,
-		EnterpriseName:    item.EnterpriseName,
-		FullName:          item.OwnerFullName,
-		BusinessSector:    string(item.BusinessSector),
-		District:          optionalString(item.District),
-		Description:       optionalString(item.Description),
-		FocusCommodity:    optionalString(item.FocusCommodity),
-		DisporaSupport:    optionalString(item.DisporaSupport),
-		InterventionNeeds: optionalString(string(item.InterventionNeeds)),
-		CreatedAt:         item.CreatedAt,
-	}
-}
-
-// optionalString returns nil for an empty value so optional fields serialize as
-// JSON null.
-func optionalString(value string) *string {
-	if value == "" {
-		return nil
-	}
-
-	return &value
-}
-
-func toEnterpriseResponses(enterprises []entity.Enterprise) []model.EnterpriseResponse {
-	responses := make([]model.EnterpriseResponse, 0, len(enterprises))
-	for _, enterprise := range enterprises {
-		responses = append(responses, toEnterpriseResponse(enterprise))
-	}
-
-	return responses
-}
-
-func toPublicEnterpriseResponses(items []entity.PublicEnterprise) []model.PublicEnterpriseResponse {
-	responses := make([]model.PublicEnterpriseResponse, 0, len(items))
-	for _, item := range items {
-		responses = append(responses, toPublicEnterpriseResponse(item))
-	}
-
-	return responses
 }

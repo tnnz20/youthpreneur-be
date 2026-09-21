@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/tnnz20/youthpreneur-be/internal/entity"
 	"github.com/tnnz20/youthpreneur-be/internal/model"
@@ -58,7 +57,7 @@ func (h *TrainingCatalogHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response := model.TrainingCatalogListResponse{Catalogs: toTrainingCatalogResponses(result.Catalogs)}
+	response := model.TrainingCatalogListResponse{Catalogs: model.ToTrainingCatalogResponses(result.Catalogs)}
 	if result.NextCursor != 0 {
 		response.NextCursor = strconv.Itoa(result.NextCursor)
 	}
@@ -74,7 +73,7 @@ func (h *TrainingCatalogHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, toTrainingCatalogResponse(catalog))
+	h.writeJSON(w, http.StatusOK, model.ToTrainingCatalogResponse(catalog))
 }
 
 // Create handles POST /training-catalog.
@@ -107,7 +106,7 @@ func (h *TrainingCatalogHandler) Create(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	h.writeJSON(w, http.StatusCreated, toTrainingCatalogResponse(catalog))
+	h.writeJSON(w, http.StatusCreated, model.ToTrainingCatalogResponse(catalog))
 }
 
 // Update handles PATCH /training-catalog/{publicID}.
@@ -139,7 +138,7 @@ func (h *TrainingCatalogHandler) Update(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, toTrainingCatalogResponse(catalog))
+	h.writeJSON(w, http.StatusOK, model.ToTrainingCatalogResponse(catalog))
 }
 
 // UpdateStatus handles PATCH /training-catalog/{publicID}/status.
@@ -160,7 +159,7 @@ func (h *TrainingCatalogHandler) UpdateStatus(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, toTrainingCatalogResponse(catalog))
+	h.writeJSON(w, http.StatusOK, model.ToTrainingCatalogResponse(catalog))
 }
 
 // Delete handles DELETE /training-catalog/{publicID}.
@@ -217,42 +216,4 @@ func (h *TrainingCatalogHandler) writeUsecaseError(w http.ResponseWriter, err er
 		h.logger.Error("training catalog request failed", "error", err)
 		h.writeError(w, http.StatusInternalServerError, "internal server error")
 	}
-}
-
-func toTrainingCatalogResponse(catalog entity.TrainingCatalog) model.TrainingCatalogResponse {
-	return model.TrainingCatalogResponse{
-		PublicID:       catalog.PublicID,
-		Name:           optionalString(catalog.Name),
-		Description:    optionalString(catalog.Description),
-		PicPhone:       optionalString(catalog.PicPhone),
-		Category:       optionalString(catalog.Category),
-		TrainingSlots:  catalog.TrainingSlots,
-		TrainingStatus: optionalString(string(catalog.TrainingStatus)),
-		Link:           optionalString(catalog.Link),
-		TrainingDate:   formatOptionalDate(catalog.TrainingDate),
-		TrainingPeriod: optionalString(catalog.TrainingPeriod),
-		Speaker:        optionalString(catalog.Speaker),
-		CreatedAt:      catalog.CreatedAt,
-		UpdatedAt:      catalog.UpdatedAt,
-	}
-}
-
-func toTrainingCatalogResponses(catalogs []entity.TrainingCatalog) []model.TrainingCatalogResponse {
-	responses := make([]model.TrainingCatalogResponse, 0, len(catalogs))
-	for _, catalog := range catalogs {
-		responses = append(responses, toTrainingCatalogResponse(catalog))
-	}
-
-	return responses
-}
-
-// formatOptionalDate renders an optional date as `YYYY-MM-DD` or JSON null.
-func formatOptionalDate(date *time.Time) *string {
-	if date == nil {
-		return nil
-	}
-
-	formatted := date.Format(birthDateFormat)
-
-	return &formatted
 }

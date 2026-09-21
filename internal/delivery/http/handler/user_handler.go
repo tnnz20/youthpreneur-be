@@ -12,9 +12,6 @@ import (
 	"github.com/tnnz20/youthpreneur-be/internal/usecase"
 )
 
-// birthDateFormat is the ISO 8601 date format used for profile birth dates.
-const birthDateFormat = "2006-01-02"
-
 // UserHandler serves HTTP requests for user and profile operations.
 type UserHandler struct {
 	logger  *slog.Logger
@@ -57,7 +54,7 @@ func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.writeJSON(w, http.StatusCreated, toUserResponse(user))
+	h.writeJSON(w, http.StatusCreated, model.ToUserResponse(user))
 }
 
 // List handles GET /users and returns active members only.
@@ -88,7 +85,7 @@ func (h *UserHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response := model.UserListResponse{Users: toUserResponses(result.Users)}
+	response := model.UserListResponse{Users: model.ToUserResponses(result.Users)}
 	if result.NextCursor != 0 {
 		response.NextCursor = strconv.Itoa(result.NextCursor)
 	}
@@ -104,7 +101,7 @@ func (h *UserHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, toUserResponse(user))
+	h.writeJSON(w, http.StatusOK, model.ToUserResponse(user))
 }
 
 // Delete handles DELETE /users/{publicID}.
@@ -144,7 +141,7 @@ func (h *UserHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, toUserResponse(user))
+	h.writeJSON(w, http.StatusOK, model.ToUserResponse(user))
 }
 
 // UpdateStatus handles PATCH /users/{publicID}/status.
@@ -165,7 +162,7 @@ func (h *UserHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, toUserResponse(user))
+	h.writeJSON(w, http.StatusOK, model.ToUserResponse(user))
 }
 
 // ChangePassword handles PUT /users/{publicID}/password.
@@ -256,7 +253,7 @@ func parseBirthDate(raw string) (*time.Time, error) {
 		return nil, nil
 	}
 
-	parsed, err := time.Parse(birthDateFormat, raw)
+	parsed, err := time.Parse(model.DateFormat, raw)
 	if err != nil {
 		return nil, err
 	}
@@ -278,41 +275,4 @@ func parseLimit(raw string) (int, error) {
 	}
 
 	return limit, nil
-}
-
-func toUserResponse(user entity.User) model.UserResponse {
-	response := model.UserResponse{
-		PublicID:  user.PublicID,
-		Email:     user.Email,
-		Role:      string(user.Role),
-		IsActive:  user.IsActive,
-		CreatedAt: user.CreatedAt,
-		UpdatedAt: user.UpdatedAt,
-	}
-
-	if user.Profile != nil {
-		profile := &model.ProfileResponse{
-			FullName: user.Profile.FullName,
-			NIK:      user.Profile.NIK,
-			Gender:   string(user.Profile.Gender),
-			District: user.Profile.District,
-			Phone:    user.Profile.Phone,
-			Address:  user.Profile.Address,
-		}
-		if user.Profile.BirthDate != nil {
-			profile.BirthDate = user.Profile.BirthDate.Format(birthDateFormat)
-		}
-		response.Profile = profile
-	}
-
-	return response
-}
-
-func toUserResponses(users []entity.User) []model.UserResponse {
-	responses := make([]model.UserResponse, 0, len(users))
-	for _, user := range users {
-		responses = append(responses, toUserResponse(user))
-	}
-
-	return responses
 }
