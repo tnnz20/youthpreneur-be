@@ -38,27 +38,27 @@ func TestApplyTrainingCatalogUpdateMergesOptionalFields(t *testing.T) {
 	locked := entity.TrainingCatalog{
 		ID:             3,
 		PublicID:       "YTP-000003",
-		Name:           "Old",
-		Category:       "Lama",
-		TrainingSlots:  &slots,
+		Title:          "Old",
+		Category:       entity.TrainingCategoryWirausahaAgribisnis,
+		MaxSlots:       &slots,
 		TrainingStatus: entity.ProcessStatusPlanned,
 	}
 
-	name := "New"
-	category := ""
+	title := "New"
+	category := entity.TrainingCategoryDigitalIPTEK
 	newStatus := entity.ProcessStatusCompleted
 	merged := applyTrainingCatalogUpdate(locked, entity.TrainingCatalogUpdate{
-		Name:           &name,
+		Title:          &title,
 		Category:       &category,
 		TrainingStatus: &newStatus,
 		UpdatedAt:      99,
 	})
 
-	if merged.Name != "New" || merged.Category != "" || merged.TrainingStatus != entity.ProcessStatusCompleted {
-		t.Errorf("merged = %+v, want applied name, cleared category, completed status", merged)
+	if merged.Title != "New" || merged.Category != entity.TrainingCategoryDigitalIPTEK || merged.TrainingStatus != entity.ProcessStatusCompleted {
+		t.Errorf("merged = %+v, want applied title, updated category, completed status", merged)
 	}
-	if merged.TrainingSlots == nil || *merged.TrainingSlots != 10 {
-		t.Errorf("slots = %v, want untouched 10", merged.TrainingSlots)
+	if merged.MaxSlots == nil || *merged.MaxSlots != 10 {
+		t.Errorf("slots = %v, want untouched 10", merged.MaxSlots)
 	}
 	if merged.UpdatedAt != 99 {
 		t.Errorf("updated_at = %d, want 99", merged.UpdatedAt)
@@ -78,16 +78,18 @@ func TestTrainingCatalogScanSharedAcrossJoinedEnrollment(t *testing.T) {
 		*(dest[2].(*sql.NullString)) = sql.NullString{String: "Kelas", Valid: true}
 		*(dest[3].(*sql.NullString)) = sql.NullString{String: "Deskripsi", Valid: true}
 		*(dest[4].(*sql.NullString)) = sql.NullString{String: "0812", Valid: true}
-		*(dest[5].(*sql.NullString)) = sql.NullString{String: "Pemasaran", Valid: true}
+		*(dest[5].(*sql.NullString)) = sql.NullString{String: string(entity.TrainingCategoryDigitalIPTEK), Valid: true}
 		*(dest[6].(*sql.NullInt64)) = sql.NullInt64{Int64: 20, Valid: true}
 		*(dest[7].(*sql.NullString)) = sql.NullString{String: "planned", Valid: true}
 		*(dest[8].(*sql.NullString)) = sql.NullString{String: "https://example.com", Valid: true}
-		*(dest[9].(*sql.NullTime)) = sql.NullTime{Time: trainingDay, Valid: true}
-		*(dest[10].(*sql.NullString)) = sql.NullString{String: "09:00-12:00", Valid: true}
-		*(dest[11].(*sql.NullString)) = sql.NullString{String: "Budi", Valid: true}
-		*(dest[12].(*int64)) = 100
-		*(dest[13].(*int64)) = 200
-		*(dest[14].(*sql.NullInt64)) = sql.NullInt64{Int64: 300, Valid: true}
+		*(dest[9].(*sql.NullString)) = sql.NullString{String: "Jalan Merdeka", Valid: true}
+		*(dest[10].(*sql.NullString)) = sql.NullString{String: "/uploads/thumbnails/thumb.png", Valid: true}
+		*(dest[11].(*sql.NullTime)) = sql.NullTime{Time: trainingDay, Valid: true}
+		*(dest[12].(*sql.NullTime)) = sql.NullTime{Time: trainingDay.Add(24 * time.Hour), Valid: true}
+		*(dest[13].(*sql.NullString)) = sql.NullString{String: "Budi", Valid: true}
+		*(dest[14].(*int64)) = 100
+		*(dest[15].(*int64)) = 200
+		*(dest[16].(*sql.NullInt64)) = sql.NullInt64{Int64: 300, Valid: true}
 	}
 
 	direct, err := scanTrainingCatalog(func(dest ...any) error {
@@ -106,10 +108,11 @@ func TestTrainingCatalogScanSharedAcrossJoinedEnrollment(t *testing.T) {
 		*(dest[3].(*string)) = "YTP-000009"
 		*(dest[4].(*int)) = 3
 		*(dest[5].(*sql.NullTime)) = sql.NullTime{Time: trainingDay, Valid: true}
-		*(dest[6].(*int64)) = 400
+		*(dest[6].(*string)) = "pending"
 		*(dest[7].(*int64)) = 400
-		*(dest[8].(*sql.NullInt64)) = sql.NullInt64{}
-		fillCatalog(dest[9:])
+		*(dest[8].(*int64)) = 400
+		*(dest[9].(*sql.NullInt64)) = sql.NullInt64{}
+		fillCatalog(dest[10:])
 
 		return nil
 	})
@@ -153,36 +156,36 @@ func TestTrainingCatalogRepositoryIntegration(t *testing.T) {
 	slots := 2
 	created, err := repo.CreateTrainingCatalog(ctx, entity.TrainingCatalog{
 		PublicID:       publicID,
-		Name:           "Bisnis Digital",
-		Category:       "Pemasaran",
-		TrainingSlots:  &slots,
+		Title:          "Bisnis Digital",
+		Category:       entity.TrainingCategoryDigitalIPTEK,
+		MaxSlots:       &slots,
 		TrainingStatus: entity.ProcessStatusPlanned,
-		TrainingDate:   &trainingDate,
+		StartDate:      &trainingDate,
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	})
 	if err != nil {
 		t.Fatalf("CreateTrainingCatalog() error = %v", err)
 	}
-	if created.ID == 0 || created.TrainingSlots == nil || *created.TrainingSlots != 2 {
+	if created.ID == 0 || created.MaxSlots == nil || *created.MaxSlots != 2 {
 		t.Fatalf("CreateTrainingCatalog() = %+v, want persisted id and slots", created)
 	}
-	if created.TrainingDate == nil || created.TrainingDate.Format("2006-01-02") != "2026-10-01" {
-		t.Errorf("training date = %v, want 2026-10-01", created.TrainingDate)
+	if created.StartDate == nil || created.StartDate.Format("2006-01-02") != "2026-10-01" {
+		t.Errorf("start date = %v, want 2026-10-01", created.StartDate)
 	}
 
 	found, err := repo.FindTrainingCatalogByPublicID(ctx, publicID)
 	if err != nil {
 		t.Fatalf("FindTrainingCatalogByPublicID() error = %v", err)
 	}
-	if found.Name != "Bisnis Digital" || found.Category != "Pemasaran" || found.TrainingStatus != entity.ProcessStatusPlanned {
+	if found.Title != "Bisnis Digital" || found.Category != entity.TrainingCategoryDigitalIPTEK || found.TrainingStatus != entity.ProcessStatusPlanned {
 		t.Errorf("found = %+v, want persisted fields", found)
 	}
 
 	list, err := repo.FindTrainingCatalogs(ctx, entity.TrainingCatalogFilter{
-		Category:       "Pemasaran",
+		Category:       entity.TrainingCategoryDigitalIPTEK,
 		TrainingStatus: entity.ProcessStatusPlanned,
-		TrainingDate:   &trainingDate,
+		StartDate:      &trainingDate,
 		Limit:          10,
 	})
 	if err != nil {
@@ -192,20 +195,20 @@ func TestTrainingCatalogRepositoryIntegration(t *testing.T) {
 		t.Fatalf("FindTrainingCatalogs() = %+v, want only the matching catalog", list)
 	}
 
-	newName := "Bisnis Digital Lanjutan"
+	newTitle := "Bisnis Digital Lanjutan"
 	completed := entity.ProcessStatusCompleted
 	updated, err := repo.UpdateTrainingCatalog(ctx, publicID, entity.TrainingCatalogUpdate{
-		Name:           &newName,
+		Title:          &newTitle,
 		TrainingStatus: &completed,
 		UpdatedAt:      now + 1,
 	})
 	if err != nil {
 		t.Fatalf("UpdateTrainingCatalog() error = %v", err)
 	}
-	if updated.Name != "Bisnis Digital Lanjutan" || updated.TrainingStatus != entity.ProcessStatusCompleted {
+	if updated.Title != "Bisnis Digital Lanjutan" || updated.TrainingStatus != entity.ProcessStatusCompleted {
 		t.Errorf("updated = %+v, want renamed completed catalog", updated)
 	}
-	if updated.Category != "Pemasaran" || updated.TrainingSlots == nil || *updated.TrainingSlots != 2 {
+	if updated.Category != entity.TrainingCategoryDigitalIPTEK || updated.MaxSlots == nil || *updated.MaxSlots != 2 {
 		t.Errorf("updated = %+v, want untouched category and slots", updated)
 	}
 
@@ -241,7 +244,7 @@ func TestTrainingCatalogSlotsConstraintIntegration(t *testing.T) {
 	})
 
 	_, err = db.ExecContext(ctx, `
-		INSERT INTO training_catalog (public_id, name, training_slots, created_at, updated_at)
+		INSERT INTO training_catalog (public_id, title, max_slots, created_at, updated_at)
 		VALUES ($1, 'Bad', 0, $2, $2)`,
 		publicID, now)
 	if err == nil {
@@ -249,8 +252,8 @@ func TestTrainingCatalogSlotsConstraintIntegration(t *testing.T) {
 	}
 
 	var pgErr *pgconn.PgError
-	if !errors.As(err, &pgErr) || pgErr.ConstraintName != "training_catalog_training_slots_positive" {
-		t.Errorf("constraint = %v, want training_catalog_training_slots_positive", err)
+	if !errors.As(err, &pgErr) || pgErr.ConstraintName != "training_catalog_max_slots_positive" {
+		t.Errorf("constraint = %v, want training_catalog_max_slots_positive", err)
 	}
 }
 
@@ -484,13 +487,14 @@ func createIntegrationCatalog(
 	now := time.Now().Unix()
 	options := entity.TrainingCatalog{
 		PublicID:       publicID,
-		Name:           "Integration Training",
+		Title:          "Integration Training",
+		Category:       entity.TrainingCategoryWirausahaAgribisnis,
 		TrainingStatus: status,
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}
 	if slots > 0 {
-		options.TrainingSlots = &slots
+		options.MaxSlots = &slots
 	}
 
 	catalog, err := repo.CreateTrainingCatalog(ctx, options)

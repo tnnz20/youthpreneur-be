@@ -45,4 +45,7 @@ type TrainingEnrollmentRepository interface {
 	// filtered by filter, with their catalog joined. Cancelled enrollments are
 	// included.
 	FindTrainingEnrollments(ctx context.Context, filter entity.TrainingEnrollmentFilter) ([]entity.TrainingEnrollment, error)
+	// UpdateTrainingEnrollmentStatus updates the approval status of the enrollment
+	// matching publicID. If transitioned to accepted and max_slots is set, capacity is checked.
+	UpdateTrainingEnrollmentStatus(ctx context.Context, publicID string, status entity.TrainingEnrollmentStatus, updatedAt int64) (entity.TrainingEnrollment, error)
 }
