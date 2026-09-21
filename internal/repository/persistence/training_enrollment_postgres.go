@@ -157,19 +157,20 @@ func (r trainingEnrollmentRepository) UpdateTrainingEnrollmentStatus(
 	defer func() { _ = tx.Rollback() }()
 
 	var (
-		enrollmentID int
-		catalogID    int
-		oldStatus    string
-		maxSlots     sql.NullInt64
+		enrollmentID    int
+		catalogID       int
+		oldStatus       string
+		maxSlots        sql.NullInt64
+		registeredCount int
 	)
 	err = tx.QueryRowContext(ctx, `
-		SELECT e.id, e.training_catalog_id, e.status, c.max_slots
+		SELECT e.id, e.training_catalog_id, e.status, c.max_slots, c.registered_count
 		FROM training_enrollments e
 		JOIN training_catalog c ON c.id = e.training_catalog_id
 		WHERE e.public_id = $1 AND e.deleted_at IS NULL
 		FOR UPDATE OF c, e`,
 		publicID,
-	).Scan(&enrollmentID, &catalogID, &oldStatus, &maxSlots)
+	).Scan(&enrollmentID, &catalogID, &oldStatus, &maxSlots, &registeredCount)
 	if errors.Is(err, sql.ErrNoRows) {
 		return entity.TrainingEnrollment{}, repository.ErrTrainingEnrollmentNotFound
 	}
@@ -178,19 +179,27 @@ func (r trainingEnrollmentRepository) UpdateTrainingEnrollmentStatus(
 	}
 
 	if status == entity.TrainingEnrollmentStatusAccepted && oldStatus != string(entity.TrainingEnrollmentStatusAccepted) {
-		if maxSlots.Valid {
-			var active int
-			if err := tx.QueryRowContext(ctx, `
-				SELECT COUNT(*)
-				FROM training_enrollments
-				WHERE training_catalog_id = $1 AND deleted_at IS NULL AND status = 'accepted'`,
-				catalogID,
-			).Scan(&active); err != nil {
-				return entity.TrainingEnrollment{}, fmt.Errorf("count accepted enrollments: %w", err)
-			}
-			if active >= int(maxSlots.Int64) {
-				return entity.TrainingEnrollment{}, repository.ErrTrainingCatalogFull
-			}
+		if maxSlots.Valid && registeredCount >= int(maxSlots.Int64) {
+			return entity.TrainingEnrollment{}, repository.ErrTrainingCatalogFull
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE training_catalog
+			SET registered_count = registered_count + 1, updated_at = $2
+			WHERE id = $1`,
+			catalogID,
+			updatedAt,
+		); err != nil {
+			return entity.TrainingEnrollment{}, fmt.Errorf("increment registered_count: %w", err)
+		}
+	} else if status != entity.TrainingEnrollmentStatusAccepted && oldStatus == string(entity.TrainingEnrollmentStatusAccepted) {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE training_catalog
+			SET registered_count = GREATEST(0, registered_count - 1), updated_at = $2
+			WHERE id = $1`,
+			catalogID,
+			updatedAt,
+		); err != nil {
+			return entity.TrainingEnrollment{}, fmt.Errorf("decrement registered_count: %w", err)
 		}
 	}
 
@@ -234,20 +243,47 @@ func (r trainingEnrollmentRepository) CancelTrainingEnrollment(
 	userID int,
 	deletedAt int64,
 ) error {
-	result, err := r.db.ExecContext(ctx, `
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var (
+		catalogID int
+		status    string
+	)
+	err = tx.QueryRowContext(ctx, `
 		UPDATE training_enrollments
 		SET deleted_at = $3, updated_at = $3
 		WHERE public_id = $1 AND deleted_at IS NULL
-		  AND ($2::int = 0 OR user_id = $2)`,
+		  AND ($2::int = 0 OR user_id = $2)
+		RETURNING training_catalog_id, status`,
 		publicID,
 		userID,
 		deletedAt,
-	)
+	).Scan(&catalogID, &status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return repository.ErrTrainingEnrollmentNotFound
+	}
 	if err != nil {
 		return fmt.Errorf("cancel training enrollment: %w", err)
 	}
-	if err := requireTrainingEnrollmentAffected(result); err != nil {
-		return err
+
+	if status == string(entity.TrainingEnrollmentStatusAccepted) {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE training_catalog
+			SET registered_count = GREATEST(0, registered_count - 1), updated_at = $2
+			WHERE id = $1`,
+			catalogID,
+			deletedAt,
+		); err != nil {
+			return fmt.Errorf("decrement registered_count on cancel: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
 	}
 
 	return nil

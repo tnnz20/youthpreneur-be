@@ -16,20 +16,11 @@ import (
 const trainingCatalogColumns = `
 	c.id, c.public_id, c.title, c.description, c.pic_phone, c.category,
 	c.max_slots, c.training_status, c.link, c.address, c.thumbnail, c.start_date,
-	c.end_date, c.mentor, c.created_at, c.updated_at, c.deleted_at`
-
-const trainingCatalogColumnsWithCount = trainingCatalogColumns + `,
-	COALESCE((
-		SELECT COUNT(*)
-		FROM training_enrollments e
-		WHERE e.training_catalog_id = c.id
-		  AND e.deleted_at IS NULL
-		  AND e.status = 'accepted'
-	), 0)::int`
+	c.end_date, c.mentor, c.created_at, c.updated_at, c.deleted_at, c.registered_count`
 
 // findTrainingCatalogsQuery applies optional filters.
 const findTrainingCatalogsQuery = `
-	SELECT ` + trainingCatalogColumnsWithCount + `
+	SELECT ` + trainingCatalogColumns + `
 	FROM training_catalog c
 	WHERE c.deleted_at IS NULL
 	  AND ($1 = '' OR c.category = NULLIF($1, '')::training_category_enum)
@@ -90,13 +81,13 @@ func (r trainingCatalogRepository) FindTrainingCatalogByPublicID(
 	publicID string,
 ) (entity.TrainingCatalog, error) {
 	row := r.db.QueryRowContext(ctx, `
-		SELECT `+trainingCatalogColumnsWithCount+`
+		SELECT `+trainingCatalogColumns+`
 		FROM training_catalog c
 		WHERE c.public_id = $1 AND c.deleted_at IS NULL`,
 		publicID,
 	)
 
-	catalog, err := scanTrainingCatalogWithCount(row.Scan)
+	catalog, err := scanTrainingCatalog(row.Scan)
 	if errors.Is(err, sql.ErrNoRows) {
 		return entity.TrainingCatalog{}, repository.ErrTrainingCatalogNotFound
 	}
@@ -125,7 +116,7 @@ func (r trainingCatalogRepository) FindTrainingCatalogs(
 
 	catalogs := []entity.TrainingCatalog{}
 	for rows.Next() {
-		catalog, err := scanTrainingCatalogWithCount(rows.Scan)
+		catalog, err := scanTrainingCatalog(rows.Scan)
 		if err != nil {
 			return nil, fmt.Errorf("scan training catalog: %w", err)
 		}
@@ -150,8 +141,8 @@ func (r trainingCatalogRepository) UpdateTrainingCatalog(
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	locked, err := scanTrainingCatalogWithCount(tx.QueryRowContext(ctx, `
-		SELECT `+trainingCatalogColumnsWithCount+`
+	locked, err := scanTrainingCatalog(tx.QueryRowContext(ctx, `
+		SELECT `+trainingCatalogColumns+`
 		FROM training_catalog c
 		WHERE c.public_id = $1 AND c.deleted_at IS NULL
 		FOR UPDATE`,
@@ -315,11 +306,8 @@ func (row *trainingCatalogRow) scanDest() []any {
 		&row.catalog.CreatedAt,
 		&row.catalog.UpdatedAt,
 		&row.deletedAt,
+		&row.registeredCount,
 	}
-}
-
-func (row *trainingCatalogRow) scanDestWithCount() []any {
-	return append(row.scanDest(), &row.registeredCount)
 }
 
 func (row *trainingCatalogRow) toCatalog() entity.TrainingCatalog {
@@ -356,15 +344,6 @@ func (row *trainingCatalogRow) toCatalog() entity.TrainingCatalog {
 func scanTrainingCatalog(scan func(dest ...any) error) (entity.TrainingCatalog, error) {
 	var row trainingCatalogRow
 	if err := scan(row.scanDest()...); err != nil {
-		return entity.TrainingCatalog{}, err
-	}
-
-	return row.toCatalog(), nil
-}
-
-func scanTrainingCatalogWithCount(scan func(dest ...any) error) (entity.TrainingCatalog, error) {
-	var row trainingCatalogRow
-	if err := scan(row.scanDestWithCount()...); err != nil {
 		return entity.TrainingCatalog{}, err
 	}
 
