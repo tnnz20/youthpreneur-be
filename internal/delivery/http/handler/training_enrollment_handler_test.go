@@ -238,13 +238,13 @@ func TestListCatalogEnrollmentsPassesCatalogPublicID(t *testing.T) {
 	uc := &fakeTrainingEnrollmentUseCase{}
 
 	rec := serve(t, newTrainingEnrollmentRouter(uc, enterpriseIdentity(entity.User{ID: 9, Role: entity.RoleAdmin})),
-		http.MethodGet, "/training-enrollments/catalog/YTP-000004", "")
+		http.MethodGet, "/training-enrollments/catalog/YTP-000004?status=accepted", "")
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body %s)", rec.Code, http.StatusOK, rec.Body.String())
 	}
-	if uc.lastCatalogInput.CatalogPublicID != "YTP-000004" || uc.lastCatalogInput.Actor.ID != 9 {
-		t.Errorf("catalog input = %+v, want catalog public id and actor 9", uc.lastCatalogInput)
+	if uc.lastCatalogInput.CatalogPublicID != "YTP-000004" || uc.lastCatalogInput.Actor.ID != 9 || uc.lastCatalogInput.Status != "accepted" {
+		t.Errorf("catalog input = %+v, want catalog public id, actor 9, and status accepted", uc.lastCatalogInput)
 	}
 }
 

@@ -150,6 +150,7 @@ func (h *TrainingEnrollmentHandler) ListByCatalog(w http.ResponseWriter, r *http
 	result, err := h.useCase.FindCatalogEnrollments(r.Context(), usecase.FindCatalogEnrollmentsInput{
 		Actor:           actor,
 		CatalogPublicID: r.PathValue("catalogPublicID"),
+		Status:          r.URL.Query().Get("status"),
 		Cursor:          cursor,
 		Limit:           limit,
 	})
@@ -171,7 +172,12 @@ func (h *TrainingEnrollmentHandler) listInput(
 		return usecase.FindTrainingEnrollmentsInput{}, false
 	}
 
-	return usecase.FindTrainingEnrollmentsInput{Actor: actor, Cursor: cursor, Limit: limit}, true
+	return usecase.FindTrainingEnrollmentsInput{
+		Actor:  actor,
+		Status: r.URL.Query().Get("status"),
+		Cursor: cursor,
+		Limit:  limit,
+	}, true
 }
 
 func (h *TrainingEnrollmentHandler) paging(w http.ResponseWriter, r *http.Request) (int, int, bool) {

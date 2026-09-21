@@ -36,6 +36,7 @@ type CreateTrainingEnrollmentInput struct {
 // FindTrainingEnrollmentsInput bounds an enrollment history request.
 type FindTrainingEnrollmentsInput struct {
 	Actor  entity.User
+	Status string
 	Cursor int
 	Limit  int
 }
@@ -45,6 +46,7 @@ type FindTrainingEnrollmentsInput struct {
 type FindCatalogEnrollmentsInput struct {
 	Actor           entity.User
 	CatalogPublicID string
+	Status          string
 	Cursor          int
 	Limit           int
 }
@@ -207,8 +209,14 @@ func (u trainingEnrollmentUsecase) FindMyEnrollments(
 		return FindTrainingEnrollmentsResult{}, ErrForbidden
 	}
 
+	status, err := normalizeEnrollmentStatus(input.Status)
+	if err != nil {
+		return FindTrainingEnrollmentsResult{}, err
+	}
+
 	return u.findEnrollments(ctx, entity.TrainingEnrollmentFilter{
 		UserID: input.Actor.ID,
+		Status: status,
 		Cursor: input.Cursor,
 		Limit:  input.Limit,
 	})
@@ -223,7 +231,13 @@ func (u trainingEnrollmentUsecase) FindAllEnrollments(
 		return FindTrainingEnrollmentsResult{}, ErrForbidden
 	}
 
+	status, err := normalizeEnrollmentStatus(input.Status)
+	if err != nil {
+		return FindTrainingEnrollmentsResult{}, err
+	}
+
 	return u.findEnrollments(ctx, entity.TrainingEnrollmentFilter{
+		Status: status,
 		Cursor: input.Cursor,
 		Limit:  input.Limit,
 	})
@@ -243,11 +257,30 @@ func (u trainingEnrollmentUsecase) FindCatalogEnrollments(
 		return FindTrainingEnrollmentsResult{}, mapTrainingCatalogRepositoryError(err)
 	}
 
+	status, err := normalizeEnrollmentStatus(input.Status)
+	if err != nil {
+		return FindTrainingEnrollmentsResult{}, err
+	}
+
 	return u.findEnrollments(ctx, entity.TrainingEnrollmentFilter{
 		CatalogID: catalog.ID,
+		Status:    status,
 		Cursor:    input.Cursor,
 		Limit:     input.Limit,
 	})
+}
+
+func normalizeEnrollmentStatus(raw string) (entity.TrainingEnrollmentStatus, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", nil
+	}
+	status := entity.TrainingEnrollmentStatus(trimmed)
+	if !entity.ValidTrainingEnrollmentStatus(status) {
+		return "", badRequest("invalid status")
+	}
+
+	return status, nil
 }
 
 func (u trainingEnrollmentUsecase) findEnrollments(

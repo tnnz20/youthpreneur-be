@@ -1368,7 +1368,7 @@ List the current user's enrollment history, including cancelled enrollments.
 
 **Authentication:** Authenticated.
 
-**Query Parameters:** `cursor` and `limit` as described for catalog listing.
+**Query Parameters:** `cursor` and `limit` as described for catalog listing, and optional `status` (`pending`, `accepted`, `rejected`).
 
 **Response:**
 
@@ -1407,7 +1407,7 @@ List every user's enrollment history, including cancelled enrollments.
 
 **Authentication:** Admin.
 
-**Query Parameters:** `cursor` and `limit` as described for catalog listing.
+**Query Parameters:** `cursor` and `limit` as described for catalog listing, and optional `status` (`pending`, `accepted`, `rejected`).
 
 **Response:** The enrollment page shown for `/training-enrollments/my`.
 
@@ -1426,7 +1426,7 @@ List one catalog's enrollment history, including cancelled enrollments.
 
 **Authentication:** Admin.
 
-**Query Parameters:** `cursor` and `limit` as described for catalog listing.
+**Query Parameters:** `cursor` and `limit` as described for catalog listing, and optional `status` (`pending`, `accepted`, `rejected`).
 
 **Response:** The enrollment page shown for `/training-enrollments/my`.
 

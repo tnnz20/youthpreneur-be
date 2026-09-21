@@ -319,11 +319,23 @@ func TestFindCatalogEnrollmentsResolvesCatalogAndRequiresAdmin(t *testing.T) {
 	if _, err := uc.FindCatalogEnrollments(context.Background(), usecase.FindCatalogEnrollmentsInput{
 		Actor:           adminActor(),
 		CatalogPublicID: "YTP-000004",
+		Status:          "accepted",
 	}); err != nil {
 		t.Fatalf("admin FindCatalogEnrollments() error = %v", err)
 	}
 	if repo.lastFilter.CatalogID != 4 {
 		t.Errorf("catalog filter = %d, want 4", repo.lastFilter.CatalogID)
+	}
+	if repo.lastFilter.Status != entity.TrainingEnrollmentStatusAccepted {
+		t.Errorf("status filter = %q, want accepted", repo.lastFilter.Status)
+	}
+
+	if _, err := uc.FindCatalogEnrollments(context.Background(), usecase.FindCatalogEnrollmentsInput{
+		Actor:           adminActor(),
+		CatalogPublicID: "YTP-000004",
+		Status:          "bogus",
+	}); !errors.Is(err, usecase.ErrBadRequest) {
+		t.Fatalf("invalid status error = %v, want ErrBadRequest", err)
 	}
 }
 
