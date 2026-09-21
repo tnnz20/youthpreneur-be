@@ -14,6 +14,7 @@
 - `cmd/web` starts HTTP server; `cmd/migrate` runs embedded PostgreSQL migrations.
 - `internal/config/bootstrap.go` is composition root: opens and pings PostgreSQL, then wires repository → usecase → handler → routes.
 - HTTP flow is `internal/delivery/http/route` → `handler` → `usecase` → `repository`; PostgreSQL implementation lives in `internal/repository/persistence`.
+- Request and response DTOs and entity-to-response converters (`To...Response`, `To...Responses`) live in `internal/model`; HTTP handlers do not define local response converters.
 - SQL migrations live in `db/migrations` and are embedded by `db/migrations/embed.go`; update the migration CLI import if this path changes.
 - `api/api-contract.md` is API contract source; keep route, request, response, status, and safety docs aligned with `route.go` and model tags.
 
