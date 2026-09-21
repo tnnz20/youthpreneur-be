@@ -2,8 +2,10 @@ package usecase
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
+	"math/big"
 	"regexp"
 	"strings"
 	"time"
@@ -13,8 +15,12 @@ import (
 )
 
 const (
-	maxEnterpriseNameLength = 255
-	maxDistrictLength       = 128
+	enterprisePublicIDPrefix     = "TPN-"
+	maxEnterpriseNameLength      = 255
+	maxDistrictLength            = 128
+	maxCommodityLength           = 255
+	maxDisporaSupportLength      = 255
+	defaultPublicEnterpriseLimit = 9
 )
 
 // Usecase errors returned by enterprise operations for HTTP status mapping.
@@ -83,7 +89,10 @@ var validGeneralStatuses = map[entity.GeneralStatus]struct{}{
 // is the authenticated identity and always owns the created enterprise.
 type CreateEnterpriseInput struct {
 	Actor                entity.User
-	Name                 string
+	EnterpriseName       string
+	Description          string
+	Address              string
+	FocusCommodity       string
 	BusinessSector       string
 	LegalStatus          string
 	BusinessDigitization string
@@ -100,7 +109,11 @@ type CreateEnterpriseInput struct {
 // UpdateEnterpriseInput carries the optional enterprise fields to change. A nil
 // field keeps its current value.
 type UpdateEnterpriseInput struct {
-	Name                 *string
+	EnterpriseName       *string
+	Description          *string
+	Address              *string
+	FocusCommodity       *string
+	DisporaSupport       *string
 	BusinessSector       *string
 	LegalStatus          *string
 	BusinessDigitization *string
@@ -118,6 +131,7 @@ type UpdateEnterpriseInput struct {
 // FindEnterprisesInput bounds and filters an enterprise listing request.
 type FindEnterprisesInput struct {
 	Actor                entity.User
+	Search               string
 	District             string
 	Status               string
 	BusinessSector       string
@@ -139,6 +153,23 @@ type FindEnterprisesResult struct {
 	NextCursor  int
 }
 
+// FindPublicEnterprisesInput bounds and filters a public enterprise listing request.
+type FindPublicEnterprisesInput struct {
+	Search            string
+	District          string
+	InterventionNeeds string
+	BusinessSector    string
+	Cursor            int
+	Limit             int
+}
+
+// FindPublicEnterprisesResult is one page of public enterprises plus the cursor
+// for the following page.
+type FindPublicEnterprisesResult struct {
+	Enterprises []entity.PublicEnterprise
+	NextCursor  int
+}
+
 // EnterpriseUseCase implements owned enterprise operations.
 type EnterpriseUseCase interface {
 	// CreateEnterprise validates input and creates an enterprise owned by the
@@ -149,9 +180,12 @@ type EnterpriseUseCase interface {
 	GetEnterprise(ctx context.Context, actor entity.User, publicID string) (entity.Enterprise, error)
 	// FindEnterprises returns one page of enterprises within the actor's scope.
 	FindEnterprises(ctx context.Context, input FindEnterprisesInput) (FindEnterprisesResult, error)
+	// FindPublicEnterprises returns one page of active enterprises ordered newest
+	// first for the public showcase.
+	FindPublicEnterprises(ctx context.Context, input FindPublicEnterprisesInput) (FindPublicEnterprisesResult, error)
 	// UpdateEnterprise changes the permitted fields of the enterprise matching
-	// publicID within the actor's scope. Owners may not change district,
-	// status, or the assessment enums; admins may change any mutable field.
+	// publicID within the actor's scope. Owners may not change status, dispora_support,
+	// or assessment enums; admins may change any mutable field.
 	UpdateEnterprise(ctx context.Context, actor entity.User, publicID string, input UpdateEnterpriseInput) (entity.Enterprise, error)
 	// DeleteEnterprise soft deletes the enterprise matching publicID within the
 	// actor's scope.
@@ -171,6 +205,17 @@ func NewEnterpriseUseCase(repo repository.EnterpriseRepository) EnterpriseUseCas
 	}
 }
 
+// GenerateEnterprisePublicID returns a TPN- prefixed identifier with six random decimal
+// digits drawn from crypto/rand.
+func GenerateEnterprisePublicID() (string, error) {
+	suffix, err := rand.Int(rand.Reader, big.NewInt(publicIDMax))
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("%s%0*d", enterprisePublicIDPrefix, publicIDDigits, suffix.Int64()), nil
+}
+
 // CreateEnterprise validates input, assigns a generated public id, and
 // persists the enterprise with its audit event.
 func (u enterpriseUsecase) CreateEnterprise(
@@ -181,9 +226,19 @@ func (u enterpriseUsecase) CreateEnterprise(
 		return entity.Enterprise{}, ErrForbidden
 	}
 
-	name := strings.TrimSpace(input.Name)
+	name := strings.TrimSpace(input.EnterpriseName)
+	if name == "" {
+		return entity.Enterprise{}, badRequest("enterprise_name is required")
+	}
 	if len(name) > maxEnterpriseNameLength {
-		return entity.Enterprise{}, badRequest("name must be at most 255 characters")
+		return entity.Enterprise{}, badRequest("enterprise_name must be at most 255 characters")
+	}
+
+	description := strings.TrimSpace(input.Description)
+	address := strings.TrimSpace(input.Address)
+	focusCommodity := strings.TrimSpace(input.FocusCommodity)
+	if len(focusCommodity) > maxCommodityLength {
+		return entity.Enterprise{}, badRequest("focus_commodity must be at most 255 characters")
 	}
 
 	sector := entity.BusinessSector(strings.TrimSpace(input.BusinessSector))
@@ -239,15 +294,18 @@ func (u enterpriseUsecase) CreateEnterprise(
 
 	// Retry a bounded number of times on collision, matching user creation.
 	for range publicIDAttempts {
-		publicID, err := GeneratePublicID()
+		publicID, err := GenerateEnterprisePublicID()
 		if err != nil {
-			return entity.Enterprise{}, fmt.Errorf("generate public id: %w", err)
+			return entity.Enterprise{}, fmt.Errorf("generate enterprise public id: %w", err)
 		}
 
 		enterprise := entity.Enterprise{
 			PublicID:             publicID,
 			UserID:               input.Actor.ID,
-			Name:                 name,
+			EnterpriseName:       name,
+			Description:          description,
+			Address:              address,
+			FocusCommodity:       focusCommodity,
 			BusinessSector:       sector,
 			LegalStatus:          legalStatus,
 			BusinessDigitization: businessDigitization,
@@ -267,7 +325,10 @@ func (u enterpriseUsecase) CreateEnterprise(
 			ActorUserID: input.Actor.ID,
 			Action:      entity.AuditActionCreate,
 			ChangedFields: map[string]any{
-				"name":                  entity.NullableAuditValue(name),
+				"enterprise_name":       name,
+				"description":           entity.NullableAuditValue(description),
+				"address":               entity.NullableAuditValue(address),
+				"focus_commodity":       entity.NullableAuditValue(focusCommodity),
 				"business_sector":       string(sector),
 				"legal_status":          entity.NullableAuditValue(string(legalStatus)),
 				"business_digitization": entity.NullableAuditValue(string(businessDigitization)),
@@ -339,6 +400,56 @@ func (u enterpriseUsecase) FindEnterprises(
 	return result, nil
 }
 
+// FindPublicEnterprises returns one page of active enterprises ordered newest
+// first for the public showcase.
+func (u enterpriseUsecase) FindPublicEnterprises(
+	ctx context.Context,
+	input FindPublicEnterprisesInput,
+) (FindPublicEnterprisesResult, error) {
+	sector, err := normalizeBusinessSector(input.BusinessSector)
+	if err != nil {
+		return FindPublicEnterprisesResult{}, err
+	}
+	interventionNeeds, err := normalizeInterventionNeeds(input.InterventionNeeds)
+	if err != nil {
+		return FindPublicEnterprisesResult{}, err
+	}
+
+	limit := clampPublicEnterpriseLimit(input.Limit)
+	filter := entity.PublicEnterpriseFilter{
+		Search:            strings.TrimSpace(input.Search),
+		District:          strings.TrimSpace(input.District),
+		InterventionNeeds: interventionNeeds,
+		BusinessSector:    sector,
+		Cursor:            input.Cursor,
+		Limit:             limit + 1,
+	}
+
+	items, err := u.repo.FindPublicEnterprises(ctx, filter)
+	if err != nil {
+		return FindPublicEnterprisesResult{}, fmt.Errorf("find public enterprises: %w", err)
+	}
+
+	result := FindPublicEnterprisesResult{Enterprises: items}
+	if len(items) > limit {
+		result.Enterprises = items[:limit]
+		result.NextCursor = items[limit-1].ID
+	}
+
+	return result, nil
+}
+
+func clampPublicEnterpriseLimit(limit int) int {
+	switch {
+	case limit <= 0:
+		return defaultPublicEnterpriseLimit
+	case limit > maxListLimit:
+		return maxListLimit
+	default:
+		return limit
+	}
+}
+
 func (u enterpriseUsecase) buildFilter(input FindEnterprisesInput) (entity.EnterpriseFilter, error) {
 	status, err := normalizeEnterpriseStatus(input.Status)
 	if err != nil {
@@ -378,6 +489,7 @@ func (u enterpriseUsecase) buildFilter(input FindEnterprisesInput) (entity.Enter
 	}
 
 	return entity.EnterpriseFilter{
+		Search:               strings.TrimSpace(input.Search),
 		District:             strings.TrimSpace(input.District),
 		Status:               status,
 		BusinessSector:       sector,
@@ -410,18 +522,50 @@ func (u enterpriseUsecase) UpdateEnterprise(
 
 	update := entity.EnterpriseUpdate{UpdatedAt: u.now()}
 
-	if input.Name != nil {
-		name := strings.TrimSpace(*input.Name)
-		if len(name) > maxEnterpriseNameLength {
-			return entity.Enterprise{}, badRequest("name must be at most 255 characters")
+	if input.EnterpriseName != nil {
+		name := strings.TrimSpace(*input.EnterpriseName)
+		if name == "" {
+			return entity.Enterprise{}, badRequest("enterprise_name cannot be empty")
 		}
-		update.Name = &name
+		if len(name) > maxEnterpriseNameLength {
+			return entity.Enterprise{}, badRequest("enterprise_name must be at most 255 characters")
+		}
+		update.EnterpriseName = &name
+	}
+
+	if input.Description != nil {
+		desc := strings.TrimSpace(*input.Description)
+		update.Description = &desc
+	}
+
+	if input.Address != nil {
+		addr := strings.TrimSpace(*input.Address)
+		update.Address = &addr
+	}
+
+	if input.FocusCommodity != nil {
+		commodity := strings.TrimSpace(*input.FocusCommodity)
+		if len(commodity) > maxCommodityLength {
+			return entity.Enterprise{}, badRequest("focus_commodity must be at most 255 characters")
+		}
+		update.FocusCommodity = &commodity
+	}
+
+	if input.DisporaSupport != nil {
+		support := strings.TrimSpace(*input.DisporaSupport)
+		if len(support) > maxDisporaSupportLength {
+			return entity.Enterprise{}, badRequest("dispora_support must be at most 255 characters")
+		}
+		update.DisporaSupport = &support
 	}
 
 	if input.BusinessSector != nil {
-		sector := entity.BusinessSector(strings.TrimSpace(*input.BusinessSector))
-		if err := validateBusinessSector(sector); err != nil {
+		sector, err := normalizeBusinessSector(*input.BusinessSector)
+		if err != nil {
 			return entity.Enterprise{}, err
+		}
+		if sector == "" {
+			return entity.Enterprise{}, badRequest("invalid business_sector")
 		}
 		update.BusinessSector = &sector
 	}
@@ -568,7 +712,7 @@ func ownerRestrictedChange(input UpdateEnterpriseInput) bool {
 		input.MentoringStatus != nil ||
 		input.CapitalAccess != nil ||
 		input.Partnership != nil ||
-		input.District != nil ||
+		input.DisporaSupport != nil ||
 		input.Status != nil
 }
 

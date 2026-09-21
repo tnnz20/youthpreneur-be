@@ -113,15 +113,22 @@ const (
 
 // Enterprise is a business owned by a user account.
 //
-// UserID is the internal owner id and is never accepted from a request. Name
-// and the assessment enums are optional and stored as NULL when empty. The
-// turnover fields keep their exact decimal representation as strings so API
-// clients do not lose precision through a float round trip.
+// UserID is the internal owner id and is never accepted from a request.
+// EnterpriseName is required and non-null. The assessment enums and new text
+// fields are optional and stored as NULL when empty. The turnover fields keep
+// their exact decimal representation as strings so API clients do not lose
+// precision through a float round trip.
 type Enterprise struct {
 	ID                   int
 	PublicID             string
 	UserID               int
-	Name                 string
+	UserPublicID         string
+	OwnerFullName        string
+	EnterpriseName       string
+	Description          string
+	Address              string
+	FocusCommodity       string
+	DisporaSupport       string
 	BusinessSector       BusinessSector
 	LegalStatus          LegalStatus
 	BusinessDigitization BusinessDigitization
@@ -143,7 +150,11 @@ type Enterprise struct {
 // field is left untouched. UpdatedAt is the mutation timestamp recorded on the
 // persisted row.
 type EnterpriseUpdate struct {
-	Name                 *string
+	EnterpriseName       *string
+	Description          *string
+	Address              *string
+	FocusCommodity       *string
+	DisporaSupport       *string
 	BusinessSector       *BusinessSector
 	LegalStatus          *LegalStatus
 	BusinessDigitization *BusinessDigitization
@@ -186,6 +197,7 @@ type EnterpriseAuditEvent struct {
 // to one owner when non-zero; zero selects every owner and must only be used
 // for admin scope.
 type EnterpriseFilter struct {
+	Search               string
 	District             string
 	Status               EnterpriseStatus
 	BusinessSector       BusinessSector
@@ -199,4 +211,30 @@ type EnterpriseFilter struct {
 	OwnerID              int
 	Cursor               int
 	Limit                int
+}
+
+// PublicEnterprise is a public showcase view of an active enterprise.
+type PublicEnterprise struct {
+	ID                int
+	PublicID          string
+	EnterpriseName    string
+	OwnerFullName     string
+	BusinessSector    BusinessSector
+	District          string
+	Description       string
+	FocusCommodity    string
+	DisporaSupport    string
+	InterventionNeeds InterventionNeeds
+	CreatedAt         int64
+}
+
+// PublicEnterpriseFilter defines search, filter, and pagination criteria for
+// public enterprise discovery.
+type PublicEnterpriseFilter struct {
+	Search            string
+	District          string
+	InterventionNeeds InterventionNeeds
+	BusinessSector    BusinessSector
+	Cursor            int
+	Limit             int
 }

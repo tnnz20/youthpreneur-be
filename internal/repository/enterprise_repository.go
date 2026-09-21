@@ -38,6 +38,9 @@ type EnterpriseRepository interface {
 	// with the actual changed fields in the same transaction. It returns the
 	// committed row without a post-commit re-read.
 	UpdateEnterprise(ctx context.Context, publicID string, ownerID int, update entity.EnterpriseUpdate, event entity.EnterpriseAuditEvent) (entity.Enterprise, error)
+	// FindPublicEnterprises returns active enterprises matching filter ordered
+	// newest first (descending id) for the public showcase.
+	FindPublicEnterprises(ctx context.Context, filter entity.PublicEnterpriseFilter) ([]entity.PublicEnterprise, error)
 	// SoftDeleteEnterprise sets deleted_at for the active enterprise matching
 	// publicID within ownerID scope and writes its audit event in the same
 	// transaction.

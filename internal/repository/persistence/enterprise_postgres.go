@@ -15,18 +15,24 @@ import (
 )
 
 const enterpriseColumns = `
-	e.id, e.public_id, e.user_id, e.name, e.business_sector,
+	e.id, e.public_id, e.user_id, e.enterprise_name, e.description, e.address,
+	e.focus_commodity, e.dispora_support, e.business_sector,
 	e.legal_status, e.business_digitization, e.intervention_needs,
 	e.training_status, e.mentoring_status, e.capital_access, e.partnership,
 	e.initial_turnover, e.current_turnover, e.district, e.status,
 	e.created_at, e.updated_at, e.deleted_at`
 
+const enterpriseColumnsWithUser = enterpriseColumns + `,
+	COALESCE(u.public_id, ''), COALESCE(p.full_name, '')`
+
 // findEnterprisesQuery applies the owner scope plus optional enum and district
 // filters. Enum parameters are wrapped in NULLIF so an empty filter binds NULL
 // instead of failing an enum cast.
 const findEnterprisesQuery = `
-	SELECT ` + enterpriseColumns + `
+	SELECT ` + enterpriseColumnsWithUser + `
 	FROM enterprises e
+	JOIN users u ON u.id = e.user_id
+	LEFT JOIN user_profiles p ON p.user_id = u.id
 	WHERE e.deleted_at IS NULL
 	  AND ($1::int = 0 OR e.user_id = $1)
 	  AND ($2 = '' OR e.district = $2)
@@ -39,9 +45,36 @@ const findEnterprisesQuery = `
 	  AND ($9 = '' OR e.mentoring_status = NULLIF($9, '')::process_status_enum)
 	  AND ($10 = '' OR e.capital_access = NULLIF($10, '')::general_status_enum)
 	  AND ($11 = '' OR e.partnership = NULLIF($11, '')::general_status_enum)
-	  AND ($12::int = 0 OR e.id > $12)
-	ORDER BY e.id ASC
-	LIMIT $13`
+	  AND ($12 = '' OR (e.enterprise_name ILIKE '%' || $12 || '%' OR COALESCE(p.full_name, '') ILIKE '%' || $12 || '%'))
+	  AND ($13::int = 0 OR e.id < $13)
+	ORDER BY e.id DESC
+	LIMIT $14`
+
+const findPublicEnterprisesQuery = `
+	SELECT
+		e.id,
+		e.public_id,
+		e.enterprise_name,
+		COALESCE(p.full_name, ''),
+		e.business_sector,
+		COALESCE(e.district, ''),
+		COALESCE(e.description, ''),
+		COALESCE(e.focus_commodity, ''),
+		COALESCE(e.dispora_support, ''),
+		COALESCE(e.intervention_needs::text, ''),
+		e.created_at
+	FROM enterprises e
+	JOIN users u ON u.id = e.user_id AND u.deleted_at IS NULL AND u.is_active = TRUE
+	LEFT JOIN user_profiles p ON p.user_id = u.id AND p.deleted_at IS NULL
+	WHERE e.deleted_at IS NULL
+	  AND e.status = 'active'
+	  AND ($1 = '' OR e.district = $1)
+	  AND ($2 = '' OR e.intervention_needs = NULLIF($2, '')::intervention_needs_enum)
+	  AND ($3 = '' OR e.business_sector = NULLIF($3, '')::business_sector_enum)
+	  AND ($4 = '' OR (e.enterprise_name ILIKE '%' || $4 || '%' OR COALESCE(p.full_name, '') ILIKE '%' || $4 || '%'))
+	  AND ($5::int = 0 OR e.id < $5)
+	ORDER BY e.id DESC
+	LIMIT $6`
 
 type enterpriseRepository struct {
 	db *sql.DB
@@ -65,27 +98,39 @@ func (r enterpriseRepository) CreateEnterprise(
 	defer func() { _ = tx.Rollback() }()
 
 	created, err := scanEnterprise(tx.QueryRowContext(ctx, `
-		INSERT INTO enterprises AS e (
-			public_id, user_id, name, business_sector, legal_status,
-			business_digitization, intervention_needs, training_status,
-			mentoring_status, capital_access, partnership,
-			initial_turnover, current_turnover, district, status,
-			created_at, updated_at
+		WITH inserted AS (
+			INSERT INTO enterprises AS e (
+				public_id, user_id, enterprise_name, description, address,
+				focus_commodity, dispora_support, business_sector, legal_status,
+				business_digitization, intervention_needs, training_status,
+				mentoring_status, capital_access, partnership,
+				initial_turnover, current_turnover, district, status,
+				created_at, updated_at
+			)
+			VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''),
+				NULLIF($6, ''), NULLIF($7, ''), $8::text::business_sector_enum,
+				NULLIF($9, '')::legal_status_enum,
+				NULLIF($10, '')::business_digitization_enum,
+				NULLIF($11, '')::intervention_needs_enum,
+				NULLIF($12, '')::process_status_enum,
+				NULLIF($13, '')::process_status_enum,
+				NULLIF($14, '')::general_status_enum,
+				NULLIF($15, '')::general_status_enum,
+				$16::text::numeric, $17::text::numeric, NULLIF($18, ''),
+				$19::text::enterprise_status_enum, $20, $21)
+			RETURNING `+enterpriseColumns+`
 		)
-		VALUES ($1, $2, $3, $4::text::business_sector_enum,
-			NULLIF($5, '')::legal_status_enum,
-			NULLIF($6, '')::business_digitization_enum,
-			NULLIF($7, '')::intervention_needs_enum,
-			NULLIF($8, '')::process_status_enum,
-			NULLIF($9, '')::process_status_enum,
-			NULLIF($10, '')::general_status_enum,
-			NULLIF($11, '')::general_status_enum,
-			$12::text::numeric, $13::text::numeric, $14,
-			$15::text::enterprise_status_enum, $16, $17)
-		RETURNING `+enterpriseColumns,
+		SELECT `+enterpriseColumnsWithUser+`
+		FROM inserted e
+		JOIN users u ON u.id = e.user_id
+		LEFT JOIN user_profiles p ON p.user_id = u.id`,
 		enterprise.PublicID,
 		enterprise.UserID,
-		nullString(enterprise.Name),
+		enterprise.EnterpriseName,
+		nullString(enterprise.Description),
+		nullString(enterprise.Address),
+		nullString(enterprise.FocusCommodity),
+		nullString(enterprise.DisporaSupport),
 		string(enterprise.BusinessSector),
 		string(enterprise.LegalStatus),
 		string(enterprise.BusinessDigitization),
@@ -122,8 +167,10 @@ func (r enterpriseRepository) FindEnterpriseByPublicID(
 	ownerID int,
 ) (entity.Enterprise, error) {
 	row := r.db.QueryRowContext(ctx, `
-		SELECT `+enterpriseColumns+`
+		SELECT `+enterpriseColumnsWithUser+`
 		FROM enterprises e
+		JOIN users u ON u.id = e.user_id
+		LEFT JOIN user_profiles p ON p.user_id = u.id
 		WHERE e.public_id = $1 AND e.deleted_at IS NULL
 		  AND ($2::int = 0 OR e.user_id = $2)`,
 		publicID,
@@ -157,6 +204,7 @@ func (r enterpriseRepository) FindEnterprises(
 		string(filter.MentoringStatus),
 		string(filter.CapitalAccess),
 		string(filter.Partnership),
+		filter.Search,
 		filter.Cursor,
 		filter.Limit,
 	)
@@ -181,6 +229,38 @@ func (r enterpriseRepository) FindEnterprises(
 	return enterprises, nil
 }
 
+func (r enterpriseRepository) FindPublicEnterprises(
+	ctx context.Context,
+	filter entity.PublicEnterpriseFilter,
+) ([]entity.PublicEnterprise, error) {
+	rows, err := r.db.QueryContext(ctx, findPublicEnterprisesQuery,
+		filter.District,
+		string(filter.InterventionNeeds),
+		string(filter.BusinessSector),
+		filter.Search,
+		filter.Cursor,
+		filter.Limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query public enterprises: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	items := []entity.PublicEnterprise{}
+	for rows.Next() {
+		item, err := scanPublicEnterprise(rows.Scan)
+		if err != nil {
+			return nil, fmt.Errorf("scan public enterprise: %w", err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate public enterprises: %w", err)
+	}
+
+	return items, nil
+}
+
 func (r enterpriseRepository) UpdateEnterprise(
 	ctx context.Context,
 	publicID string,
@@ -195,11 +275,13 @@ func (r enterpriseRepository) UpdateEnterprise(
 	defer func() { _ = tx.Rollback() }()
 
 	locked, err := scanEnterprise(tx.QueryRowContext(ctx, `
-		SELECT `+enterpriseColumns+`
+		SELECT `+enterpriseColumnsWithUser+`
 		FROM enterprises e
+		JOIN users u ON u.id = e.user_id
+		LEFT JOIN user_profiles p ON p.user_id = u.id
 		WHERE e.public_id = $1 AND e.deleted_at IS NULL
 		  AND ($2::int = 0 OR e.user_id = $2)
-		FOR UPDATE`,
+		FOR UPDATE OF e`,
 		publicID,
 		ownerID,
 	).Scan)
@@ -216,27 +298,41 @@ func (r enterpriseRepository) UpdateEnterprise(
 	}
 
 	updated, err := scanEnterprise(tx.QueryRowContext(ctx, `
-		UPDATE enterprises e
-		SET name = $3,
-		    business_sector = $4::text::business_sector_enum,
-		    legal_status = NULLIF($5, '')::legal_status_enum,
-		    business_digitization = NULLIF($6, '')::business_digitization_enum,
-		    intervention_needs = NULLIF($7, '')::intervention_needs_enum,
-		    training_status = NULLIF($8, '')::process_status_enum,
-		    mentoring_status = NULLIF($9, '')::process_status_enum,
-		    capital_access = NULLIF($10, '')::general_status_enum,
-		    partnership = NULLIF($11, '')::general_status_enum,
-		    initial_turnover = $12::text::numeric,
-		    current_turnover = $13::text::numeric,
-		    district = $14,
-		    status = $15::text::enterprise_status_enum,
-		    updated_at = $16
-		WHERE e.public_id = $1 AND e.deleted_at IS NULL
-		  AND ($2::int = 0 OR e.user_id = $2)
-		RETURNING `+enterpriseColumns,
+		WITH updated AS (
+			UPDATE enterprises e
+			SET enterprise_name = $3,
+			    description = NULLIF($4, ''),
+			    address = NULLIF($5, ''),
+			    focus_commodity = NULLIF($6, ''),
+			    dispora_support = NULLIF($7, ''),
+			    business_sector = $8::text::business_sector_enum,
+			    legal_status = NULLIF($9, '')::legal_status_enum,
+			    business_digitization = NULLIF($10, '')::business_digitization_enum,
+			    intervention_needs = NULLIF($11, '')::intervention_needs_enum,
+			    training_status = NULLIF($12, '')::process_status_enum,
+			    mentoring_status = NULLIF($13, '')::process_status_enum,
+			    capital_access = NULLIF($14, '')::general_status_enum,
+			    partnership = NULLIF($15, '')::general_status_enum,
+			    initial_turnover = $16::text::numeric,
+			    current_turnover = $17::text::numeric,
+			    district = NULLIF($18, ''),
+			    status = $19::text::enterprise_status_enum,
+			    updated_at = $20
+			WHERE e.public_id = $1 AND e.deleted_at IS NULL
+			  AND ($2::int = 0 OR e.user_id = $2)
+			RETURNING `+enterpriseColumns+`
+		)
+		SELECT `+enterpriseColumnsWithUser+`
+		FROM updated e
+		JOIN users u ON u.id = e.user_id
+		LEFT JOIN user_profiles p ON p.user_id = u.id`,
 		publicID,
 		ownerID,
-		nullString(merged.Name),
+		merged.EnterpriseName,
+		nullString(merged.Description),
+		nullString(merged.Address),
+		nullString(merged.FocusCommodity),
+		nullString(merged.DisporaSupport),
 		string(merged.BusinessSector),
 		string(merged.LegalStatus),
 		string(merged.BusinessDigitization),
@@ -319,11 +415,35 @@ func applyEnterpriseUpdate(locked entity.Enterprise, update entity.EnterpriseUpd
 	merged.UpdatedAt = update.UpdatedAt
 	changed := map[string]any{}
 
-	if update.Name != nil {
-		if *update.Name != locked.Name {
-			changed["name"] = entity.NullableAuditValue(*update.Name)
+	if update.EnterpriseName != nil {
+		if *update.EnterpriseName != locked.EnterpriseName {
+			changed["enterprise_name"] = *update.EnterpriseName
 		}
-		merged.Name = *update.Name
+		merged.EnterpriseName = *update.EnterpriseName
+	}
+	if update.Description != nil {
+		if *update.Description != locked.Description {
+			changed["description"] = entity.NullableAuditValue(*update.Description)
+		}
+		merged.Description = *update.Description
+	}
+	if update.Address != nil {
+		if *update.Address != locked.Address {
+			changed["address"] = entity.NullableAuditValue(*update.Address)
+		}
+		merged.Address = *update.Address
+	}
+	if update.FocusCommodity != nil {
+		if *update.FocusCommodity != locked.FocusCommodity {
+			changed["focus_commodity"] = entity.NullableAuditValue(*update.FocusCommodity)
+		}
+		merged.FocusCommodity = *update.FocusCommodity
+	}
+	if update.DisporaSupport != nil {
+		if *update.DisporaSupport != locked.DisporaSupport {
+			changed["dispora_support"] = entity.NullableAuditValue(*update.DisporaSupport)
+		}
+		merged.DisporaSupport = *update.DisporaSupport
 	}
 	if update.BusinessSector != nil {
 		if *update.BusinessSector != locked.BusinessSector {
@@ -442,7 +562,9 @@ func scanEnterprise(scan func(dest ...any) error) (entity.Enterprise, error) {
 	var (
 		enterprise                       entity.Enterprise
 		businessSector, status           string
-		name                             sql.NullString
+		enterpriseName                   string
+		description, address             sql.NullString
+		focusCommodity, disporaSupport   sql.NullString
 		legalStatus                      sql.NullString
 		businessDigitization             sql.NullString
 		interventionNeeds                sql.NullString
@@ -451,13 +573,18 @@ func scanEnterprise(scan func(dest ...any) error) (entity.Enterprise, error) {
 		initialTurnover, currentTurnover sql.NullString
 		district                         sql.NullString
 		deletedAt                        sql.NullInt64
+		userPublicID, ownerFullName      sql.NullString
 	)
 
 	err := scan(
 		&enterprise.ID,
 		&enterprise.PublicID,
 		&enterprise.UserID,
-		&name,
+		&enterpriseName,
+		&description,
+		&address,
+		&focusCommodity,
+		&disporaSupport,
 		&businessSector,
 		&legalStatus,
 		&businessDigitization,
@@ -473,12 +600,18 @@ func scanEnterprise(scan func(dest ...any) error) (entity.Enterprise, error) {
 		&enterprise.CreatedAt,
 		&enterprise.UpdatedAt,
 		&deletedAt,
+		&userPublicID,
+		&ownerFullName,
 	)
 	if err != nil {
 		return entity.Enterprise{}, err
 	}
 
-	enterprise.Name = name.String
+	enterprise.EnterpriseName = enterpriseName
+	enterprise.Description = description.String
+	enterprise.Address = address.String
+	enterprise.FocusCommodity = focusCommodity.String
+	enterprise.DisporaSupport = disporaSupport.String
 	enterprise.BusinessSector = entity.BusinessSector(businessSector)
 	enterprise.LegalStatus = entity.LegalStatus(legalStatus.String)
 	enterprise.BusinessDigitization = entity.BusinessDigitization(businessDigitization.String)
@@ -491,11 +624,48 @@ func scanEnterprise(scan func(dest ...any) error) (entity.Enterprise, error) {
 	enterprise.CurrentTurnover = currentTurnover.String
 	enterprise.District = district.String
 	enterprise.Status = entity.EnterpriseStatus(status)
+	enterprise.UserPublicID = userPublicID.String
+	enterprise.OwnerFullName = ownerFullName.String
 	if deletedAt.Valid {
 		enterprise.DeletedAt = &deletedAt.Int64
 	}
 
 	return enterprise, nil
+}
+
+func scanPublicEnterprise(scan func(dest ...any) error) (entity.PublicEnterprise, error) {
+	var (
+		item                              entity.PublicEnterprise
+		businessSector, interventionNeeds string
+		district, description             string
+		focusCommodity, disporaSupport    string
+	)
+
+	err := scan(
+		&item.ID,
+		&item.PublicID,
+		&item.EnterpriseName,
+		&item.OwnerFullName,
+		&businessSector,
+		&district,
+		&description,
+		&focusCommodity,
+		&disporaSupport,
+		&interventionNeeds,
+		&item.CreatedAt,
+	)
+	if err != nil {
+		return entity.PublicEnterprise{}, err
+	}
+
+	item.BusinessSector = entity.BusinessSector(businessSector)
+	item.District = district
+	item.Description = description
+	item.FocusCommodity = focusCommodity
+	item.DisporaSupport = disporaSupport
+	item.InterventionNeeds = entity.InterventionNeeds(interventionNeeds)
+
+	return item, nil
 }
 
 // mapEnterpriseInsertError translates a unique public id violation into a
