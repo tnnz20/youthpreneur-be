@@ -51,6 +51,8 @@ func (rt *Router) Register(mux *http.ServeMux) {
 	rt.register(mux, "PUT /users/{publicID}/profile", []Middleware{rt.deps.Authenticate, rt.deps.RequireSelf}, rt.deps.UserHandler.UpdateProfile)
 	rt.register(mux, "PUT /users/{publicID}/password", []Middleware{rt.deps.Authenticate, rt.deps.RequireSelf}, rt.deps.UserHandler.ChangePassword)
 
+	rt.register(mux, "GET /enterprises/public", nil, rt.deps.EnterpriseHandler.ListPublic)
+
 	authenticated := []Middleware{rt.deps.Authenticate}
 	rt.register(mux, "POST /enterprises", authenticated, rt.deps.EnterpriseHandler.Create)
 	rt.register(mux, "GET /enterprises", authenticated, rt.deps.EnterpriseHandler.List)

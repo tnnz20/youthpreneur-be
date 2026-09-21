@@ -48,7 +48,10 @@ func (h *EnterpriseHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	enterprise, err := h.useCase.CreateEnterprise(r.Context(), usecase.CreateEnterpriseInput{
 		Actor:                actor,
-		Name:                 request.Name,
+		EnterpriseName:       request.EnterpriseName,
+		Description:          request.Description,
+		Address:              request.Address,
+		FocusCommodity:       request.FocusCommodity,
 		BusinessSector:       request.BusinessSector,
 		LegalStatus:          request.LegalStatus,
 		BusinessDigitization: request.BusinessDigitization,
@@ -90,8 +93,14 @@ func (h *EnterpriseHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	search := query.Get("search")
+	if search == "" {
+		search = query.Get("q")
+	}
+
 	result, err := h.useCase.FindEnterprises(r.Context(), usecase.FindEnterprisesInput{
 		Actor:                actor,
+		Search:               search,
 		District:             query.Get("district"),
 		Status:               query.Get("status"),
 		BusinessSector:       query.Get("business_sector"),
@@ -111,6 +120,48 @@ func (h *EnterpriseHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := model.EnterpriseListResponse{Enterprises: toEnterpriseResponses(result.Enterprises)}
+	if result.NextCursor != 0 {
+		response.NextCursor = strconv.Itoa(result.NextCursor)
+	}
+
+	h.writeJSON(w, http.StatusOK, response)
+}
+
+// ListPublic handles GET /enterprises/public.
+func (h *EnterpriseHandler) ListPublic(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+
+	cursor, err := parseCursor(query.Get("cursor"))
+	if err != nil {
+		h.writeError(w, http.StatusBadRequest, "invalid cursor")
+		return
+	}
+
+	limit, err := parseLimit(query.Get("limit"))
+	if err != nil {
+		h.writeError(w, http.StatusBadRequest, "invalid limit")
+		return
+	}
+
+	search := query.Get("search")
+	if search == "" {
+		search = query.Get("q")
+	}
+
+	result, err := h.useCase.FindPublicEnterprises(r.Context(), usecase.FindPublicEnterprisesInput{
+		Search:            search,
+		District:          query.Get("district"),
+		InterventionNeeds: query.Get("intervention_needs"),
+		BusinessSector:    query.Get("business_sector"),
+		Cursor:            cursor,
+		Limit:             limit,
+	})
+	if err != nil {
+		h.writeUsecaseError(w, err)
+		return
+	}
+
+	response := model.PublicEnterpriseListResponse{Enterprises: toPublicEnterpriseResponses(result.Enterprises)}
 	if result.NextCursor != 0 {
 		response.NextCursor = strconv.Itoa(result.NextCursor)
 	}
@@ -147,7 +198,11 @@ func (h *EnterpriseHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	enterprise, err := h.useCase.UpdateEnterprise(r.Context(), actor, r.PathValue("publicID"), usecase.UpdateEnterpriseInput{
-		Name:                 request.Name,
+		EnterpriseName:       request.EnterpriseName,
+		Description:          request.Description,
+		Address:              request.Address,
+		FocusCommodity:       request.FocusCommodity,
+		DisporaSupport:       request.DisporaSupport,
 		BusinessSector:       request.BusinessSector,
 		LegalStatus:          request.LegalStatus,
 		BusinessDigitization: request.BusinessDigitization,
@@ -228,7 +283,13 @@ func (h *EnterpriseHandler) writeUsecaseError(w http.ResponseWriter, err error) 
 func toEnterpriseResponse(enterprise entity.Enterprise) model.EnterpriseResponse {
 	return model.EnterpriseResponse{
 		PublicID:             enterprise.PublicID,
-		Name:                 optionalString(enterprise.Name),
+		UserPublicID:         enterprise.UserPublicID,
+		FullName:             enterprise.OwnerFullName,
+		EnterpriseName:       enterprise.EnterpriseName,
+		Description:          optionalString(enterprise.Description),
+		Address:              optionalString(enterprise.Address),
+		FocusCommodity:       optionalString(enterprise.FocusCommodity),
+		DisporaSupport:       optionalString(enterprise.DisporaSupport),
 		BusinessSector:       string(enterprise.BusinessSector),
 		LegalStatus:          optionalString(string(enterprise.LegalStatus)),
 		BusinessDigitization: optionalString(string(enterprise.BusinessDigitization)),
@@ -246,6 +307,21 @@ func toEnterpriseResponse(enterprise entity.Enterprise) model.EnterpriseResponse
 	}
 }
 
+func toPublicEnterpriseResponse(item entity.PublicEnterprise) model.PublicEnterpriseResponse {
+	return model.PublicEnterpriseResponse{
+		PublicID:          item.PublicID,
+		EnterpriseName:    item.EnterpriseName,
+		FullName:          item.OwnerFullName,
+		BusinessSector:    string(item.BusinessSector),
+		District:          optionalString(item.District),
+		Description:       optionalString(item.Description),
+		FocusCommodity:    optionalString(item.FocusCommodity),
+		DisporaSupport:    optionalString(item.DisporaSupport),
+		InterventionNeeds: optionalString(string(item.InterventionNeeds)),
+		CreatedAt:         item.CreatedAt,
+	}
+}
+
 // optionalString returns nil for an empty value so optional fields serialize as
 // JSON null.
 func optionalString(value string) *string {
@@ -260,6 +336,15 @@ func toEnterpriseResponses(enterprises []entity.Enterprise) []model.EnterpriseRe
 	responses := make([]model.EnterpriseResponse, 0, len(enterprises))
 	for _, enterprise := range enterprises {
 		responses = append(responses, toEnterpriseResponse(enterprise))
+	}
+
+	return responses
+}
+
+func toPublicEnterpriseResponses(items []entity.PublicEnterprise) []model.PublicEnterpriseResponse {
+	responses := make([]model.PublicEnterpriseResponse, 0, len(items))
+	for _, item := range items {
+		responses = append(responses, toPublicEnterpriseResponse(item))
 	}
 
 	return responses
