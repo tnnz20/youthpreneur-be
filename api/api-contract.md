@@ -75,10 +75,12 @@ bearer header. Passwords and token values never appear in responses or logs.
 | `GET /training-catalog` | Public |
 | `GET /training-catalog/{publicID}` | Public |
 | `POST /training-catalog` | Admin |
+| `POST /training-catalog/upload-thumbnail` | Admin |
 | `PATCH /training-catalog/{publicID}` | Admin |
 | `PATCH /training-catalog/{publicID}/status` | Admin |
 | `DELETE /training-catalog/{publicID}` | Admin |
 | `POST /training-enrollments` | Authenticated |
+| `PATCH /training-enrollments/{publicID}/status` | Admin |
 | `DELETE /training-enrollments/{publicID}` | Authenticated; owner or admin |
 | `GET /training-enrollments/my` | Authenticated; current user only |
 | `GET /training-enrollments` | Admin |
@@ -1061,12 +1063,11 @@ List active catalog entries with optional filters and cursor pagination.
 | --- | --- | --- | --- |
 | `cursor` | integer string | No | Return catalogs with `training_catalog.id` greater than cursor |
 | `limit` | integer | No | Page size, default 20, maximum 100 |
-| `category` | string | No | Exact category filter |
+| `category` | string | No | `training_category_enum` filter (`Wirausaha & Agribisnis`, `Kriya & Kreativitas`, `Digital & IPTEK`, `Olahraga & Prestasi`, `Komunitas & Pemuda`) |
 | `training_status` | string | No | `planned`, `ongoing`, or `completed` |
-| `training_date` | string | No | `YYYY-MM-DD` exact date filter |
-| `training_period` | string | No | Exact period filter |
+| `start_date` | string | No | `YYYY-MM-DD` exact start date filter |
 
-`name`, `pic_phone`, `speaker`, link, slots, IDs, and timestamps are not
+`title`, `pic_phone`, `mentor`, `address`, `thumbnail`, `end_date`, link, slots, IDs, and timestamps are not
 filterable. `next_cursor` is omitted when no next page exists; clients must pass
 the returned value and must not construct cursors.
 
@@ -1077,16 +1078,19 @@ the returned value and must not construct cursors.
   "training_catalogs": [
     {
       "public_id": "YTP-482910",
-      "name": "Bisnis Digital",
+      "title": "Bisnis Digital",
       "description": "Pelatihan pemasaran digital",
       "pic_phone": "08123456789",
-      "category": "Pemasaran",
-      "training_slots": 30,
+      "category": "Wirausaha & Agribisnis",
+      "max_slots": 30,
+      "registered_count": 5,
       "training_status": "planned",
       "link": "https://example.com/training",
-      "training_date": "2026-10-01",
-      "training_period": "09:00-12:00",
-      "speaker": "Budi",
+      "address": "Jl. Pemuda No. 1",
+      "thumbnail": "/uploads/thumbnails/sample.png",
+      "start_date": "2026-10-01",
+      "end_date": "2026-10-05",
+      "mentor": "Budi",
       "created_at": 1700000000,
       "updated_at": 1700000000
     }
@@ -1130,16 +1134,18 @@ Create a catalog entry.
 
 | Field | Type | Required | Format | Notes |
 | --- | --- | --- | --- | --- |
-| `name` | string | No | Up to 255 characters | Trimmed; empty stores `null` |
+| `title` | string | No | Up to 255 characters | Trimmed; empty stores `null` |
 | `description` | string | No | — | Trimmed; empty stores `null` |
 | `pic_phone` | string | No | Up to 50 characters | Trimmed; empty stores `null` |
-| `category` | string | No | Up to 100 characters | Trimmed; empty stores `null` |
-| `training_slots` | integer | No | Positive | `null` or omitted means unlimited |
+| `category` | string | No | `training_category_enum` value | Exact category name; empty stores `null` |
+| `max_slots` | integer | No | Positive | `null` or omitted means unlimited |
 | `training_status` | string | No | `process_status_enum` value | Empty stores `null` |
 | `link` | string | No | `http`/`https` URL, up to 255 characters | Empty stores `null` |
-| `training_date` | string | No | `YYYY-MM-DD` | Empty stores `null` |
-| `training_period` | string | No | Up to 100 characters | Trimmed; empty stores `null` |
-| `speaker` | string | No | — | Trimmed; empty stores `null` |
+| `address` | string | No | — | Trimmed; empty stores `null` |
+| `thumbnail` | string | No | Up to 255 characters | Trimmed; empty stores `null` |
+| `start_date` | string | No | `YYYY-MM-DD` | Empty stores `null` |
+| `end_date` | string | No | `YYYY-MM-DD` | Empty stores `null`; must be on or after `start_date` |
+| `mentor` | string | No | Up to 255 characters | Trimmed; empty stores `null` |
 
 `public_id`, timestamps, and deletion state are server-controlled.
 
@@ -1150,10 +1156,37 @@ Create a catalog entry.
 
 ---
 
-### 24. Update Training Catalog
+### 24. Upload Training Catalog Thumbnail
+
+Upload an image to be used as a training catalog thumbnail.
+
+**Endpoint:** `POST /training-catalog/upload-thumbnail`
+
+**Authentication:** Admin.
+
+**Request:** Multipart form (`multipart/form-data`) with a file field named `thumbnail`.
+Only PNG, JPG, and JPEG images up to 5 MiB are accepted. The file is saved to the server's
+upload directory and served statically under `/uploads/thumbnails/`.
+
+**Response:**
+
+```json
+{
+  "thumbnail_url": "/uploads/thumbnails/thumb_1700000000_abcdef1234567890.png"
+}
+```
+
+**Status Code:** `201 Created`
+
+**Errors:** `400 Bad Request`, `401 Unauthorized`, `403 Forbidden`,
+`500 Internal Server Error`
+
+---
+
+### 25. Update Training Catalog
 
 Partially update an active catalog entry. Omitted fields keep their current
-value; an empty string clears a nullable string field. `training_date` may be
+value; an empty string clears a nullable string field. `start_date` may be
 changed but not cleared once set. A request that supplies no update fields is
 rejected.
 
@@ -1161,8 +1194,9 @@ rejected.
 
 **Authentication:** Admin.
 
-**Request Fields:** The create fields as optional fields. `training_slots`, when
-supplied, must be positive. At least one field is required.
+**Request Fields:** The create fields as optional fields. `max_slots`, when
+supplied, must be positive. `end_date` must be on or after `start_date`. At least
+one field is required.
 
 **Response:** The updated catalog object.
 
@@ -1173,7 +1207,7 @@ supplied, must be positive. At least one field is required.
 
 ---
 
-### 25. Update Training Catalog Status
+### 26. Update Training Catalog Status
 
 Change only the training status of an active catalog entry.
 
@@ -1196,7 +1230,7 @@ Change only the training status of an active catalog entry.
 
 ---
 
-### 26. Soft Delete Training Catalog
+### 27. Soft Delete Training Catalog
 
 Soft delete an active catalog entry.
 
@@ -1215,7 +1249,7 @@ enrollments are retained.
 
 ---
 
-### 27. Enroll in Training
+### 28. Enroll in Training
 
 Enroll the authenticated user in a catalog offering.
 
@@ -1237,8 +1271,8 @@ Enroll the authenticated user in a catalog offering.
 }
 ```
 
-The enrolling user, `register_date` (current date), and timestamps are
-server-controlled. Enrollment is rejected with `409` when the catalog is
+The enrolling user, `register_date` (current date), initial `status` (`pending`), and
+timestamps are server-controlled. Enrollment is rejected with `409` when the catalog is
 `completed`/unset, is full, or the user already has an active enrollment.
 Enrollment is rejected with `404` when the catalog does not exist or is
 soft deleted.
@@ -1250,11 +1284,15 @@ soft deleted.
   "public_id": "YTP-482920",
   "user_public_id": "YTP-000007",
   "register_date": "2026-09-17",
+  "status": "pending",
   "created_at": 1700000000,
   "updated_at": 1700000000,
   "catalog": {
     "public_id": "YTP-482910",
-    "name": "Bisnis Digital",
+    "title": "Bisnis Digital",
+    "category": "Wirausaha & Agribisnis",
+    "max_slots": 30,
+    "registered_count": 5,
     "training_status": "planned"
   }
 }
@@ -1267,7 +1305,40 @@ soft deleted.
 
 ---
 
-### 28. Cancel Training Enrollment
+### 29. Update Training Enrollment Status
+
+Update an enrollment's approval status (`pending`, `accepted`, `rejected`).
+When updated to `accepted`, the catalog's `registered_count` increases by 1.
+If the catalog has reached `max_slots`, transition to `accepted` fails with `409 Conflict`.
+
+**Endpoint:** `PATCH /training-enrollments/{publicID}/status`
+
+**Authentication:** Admin.
+
+**Request Fields:**
+
+| Field | Type | Required | Format | Notes |
+| --- | --- | --- | --- | --- |
+| `status` | string | ✓ | `pending`, `accepted`, or `rejected` | Required |
+
+**Request Example:**
+
+```json
+{
+  "status": "accepted"
+}
+```
+
+**Response:** The updated enrollment object.
+
+**Status Code:** `200 OK`
+
+**Errors:** `400 Bad Request`, `401 Unauthorized`, `403 Forbidden`,
+`404 Not Found`, `409 Conflict`, `500 Internal Server Error`
+
+---
+
+### 30. Cancel Training Enrollment
 
 Cancel the caller's active enrollment.
 
@@ -1286,7 +1357,7 @@ enroll again afterward.
 
 ---
 
-### 29. My Training Enrollment History
+### 31. My Training Enrollment History
 
 List the current user's enrollment history, including cancelled enrollments.
 
@@ -1305,11 +1376,12 @@ List the current user's enrollment history, including cancelled enrollments.
       "public_id": "YTP-482920",
       "user_public_id": "YTP-000007",
       "register_date": "2026-09-17",
+      "status": "accepted",
       "created_at": 1700000000,
       "updated_at": 1700000100,
       "catalog": {
         "public_id": "YTP-482910",
-        "name": "Bisnis Digital",
+        "title": "Bisnis Digital",
         "training_status": "planned"
       }
     }
@@ -1324,7 +1396,7 @@ List the current user's enrollment history, including cancelled enrollments.
 
 ---
 
-### 30. All Training Enrollment History
+### 32. All Training Enrollment History
 
 List every user's enrollment history, including cancelled enrollments.
 
@@ -1343,7 +1415,7 @@ List every user's enrollment history, including cancelled enrollments.
 
 ---
 
-### 31. Catalog Training Enrollment History
+### 33. Catalog Training Enrollment History
 
 List one catalog's enrollment history, including cancelled enrollments.
 
@@ -1421,20 +1493,26 @@ Request bodies are limited to 1 MiB. Unknown JSON fields are currently ignored.
   adds `description` (TEXT), `address` (TEXT), `focus_commodity` (VARCHAR(255)),
   `dispora_support` (VARCHAR(255)), and changes enterprise public ID generation
   and check constraint to `TPN-[0-9]{6}`.
-- Training catalog optional fields are nullable; `training_slots` is a positive
+- Training catalog optional fields are nullable; `max_slots` is a positive
   `INTEGER` or `NULL` for unlimited. Catalog `training_status` reuses
   `process_status_enum`; enrollment creation reserves capacity while the status
   is `planned` or `ongoing`.
-- Enrollment `register_date`, `training_date`, and `training_period` are stored
-  as written; `register_date` is server-derived from the current date.
+- Enrollment `register_date` is server-derived from the current date. Initial enrollment
+  status is `pending`; admins may update status to `accepted` or `rejected` via
+  `PATCH /training-enrollments/{publicID}/status`.
+- `registered_count` is dynamically calculated from active enrollments with `status = 'accepted'`.
+  When an enrollment is updated to `accepted`, `registered_count` increments by 1.
 - Enrollment cancellation is a soft delete that preserves history, and the
   active uniqueness index allows re-enrollment after cancellation.
-- Migration `000005` adds `training_catalog` and `training_enrollments` with a
-  positive `training_slots` check, a partial unique active-enrollment index, and
-  indexes on catalog `deleted_at`, `training_date`, `category`, `training_status`,
-  and cursor, plus enrollment `training_catalog_id`, `user_id`, `deleted_at`,
-  active-catalog, and active-user-cursor combinations. It reuses the existing
-  `process_status_enum` and does not recreate it.
+- Thumbnail uploads accept PNG, JPG, and JPEG images up to 5 MiB, saved to
+  `UPLOAD_DIR/thumbnails` and served via `GET /uploads/*`.
+- Migration `000008` refactors `training_catalog` (renaming `name` to `title`,
+  `speaker` to `mentor`, `training_slots` to `max_slots`), drops `training_date` and
+  `training_period`, adds `address` (TEXT), `thumbnail` (VARCHAR(255)), `start_date` (DATE),
+  `end_date` (DATE), creates `training_category_enum` (`'Wirausaha & Agribisnis'`,
+  `'Kriya & Kreativitas'`, `'Digital & IPTEK'`, `'Olahraga & Prestasi'`, `'Komunitas & Pemuda'`),
+  and adds `status` (`training_enrollment_status_enum`: `'pending'`, `'accepted'`, `'rejected'`, default `'pending'`)
+  to `training_enrollments`.
 
 ---
 
