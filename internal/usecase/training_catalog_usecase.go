@@ -63,6 +63,9 @@ type UpdateTrainingCatalogInput struct {
 
 // FindTrainingCatalogsInput bounds and filters a public catalog listing.
 type FindTrainingCatalogsInput struct {
+	Search         string
+	Title          string
+	Mentor         string
 	Category       string
 	TrainingStatus string
 	StartDate      string
@@ -185,6 +188,9 @@ func (u trainingCatalogUsecase) FindTrainingCatalogs(
 
 	limit := clampLimit(input.Limit)
 	catalogs, err := u.repo.FindTrainingCatalogs(ctx, entity.TrainingCatalogFilter{
+		Search:         strings.TrimSpace(input.Search),
+		Title:          strings.TrimSpace(input.Title),
+		Mentor:         strings.TrimSpace(input.Mentor),
 		Category:       category,
 		TrainingStatus: status,
 		StartDate:      date,

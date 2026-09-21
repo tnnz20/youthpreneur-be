@@ -254,12 +254,24 @@ func TestFindTrainingCatalogsPassesValidatedFilters(t *testing.T) {
 	uc := usecase.NewTrainingCatalogUseCase(repo)
 
 	_, err := uc.FindTrainingCatalogs(context.Background(), usecase.FindTrainingCatalogsInput{
+		Search:         "  Digital Marketing  ",
+		Title:          "  Pemasaran  ",
+		Mentor:         "  Budi  ",
 		Category:       " Wirausaha & Agribisnis ",
 		TrainingStatus: "ongoing",
 		StartDate:      "2026-10-01",
 	})
 	if err != nil {
 		t.Fatalf("FindTrainingCatalogs() error = %v", err)
+	}
+	if repo.lastFilter.Search != "Digital Marketing" {
+		t.Errorf("search filter = %q, want Digital Marketing", repo.lastFilter.Search)
+	}
+	if repo.lastFilter.Title != "Pemasaran" {
+		t.Errorf("title filter = %q, want Pemasaran", repo.lastFilter.Title)
+	}
+	if repo.lastFilter.Mentor != "Budi" {
+		t.Errorf("mentor filter = %q, want Budi", repo.lastFilter.Mentor)
 	}
 	if repo.lastFilter.Category != entity.TrainingCategoryWirausahaAgribisnis {
 		t.Errorf("category filter = %q, want Wirausaha & Agribisnis", repo.lastFilter.Category)

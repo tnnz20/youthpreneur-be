@@ -165,6 +165,21 @@ func TestListTrainingCatalogsRejectsMalformedPaging(t *testing.T) {
 	}
 }
 
+func TestListTrainingCatalogsFilters(t *testing.T) {
+	uc := &fakeTrainingCatalogUseCase{}
+	router := newTrainingCatalogRouter(uc, enterpriseIdentity(entity.User{}), nil)
+
+	serve(t, router, http.MethodGet, "/training-catalog?search=Digital&title=Pemasaran&mentor=Budi", "")
+	if uc.lastListInput.Search != "Digital" || uc.lastListInput.Title != "Pemasaran" || uc.lastListInput.Mentor != "Budi" {
+		t.Errorf("list input = %+v, want parsed search, title, mentor", uc.lastListInput)
+	}
+
+	serve(t, router, http.MethodGet, "/training-catalog?q=Kreatif", "")
+	if uc.lastListInput.Search != "Kreatif" {
+		t.Errorf("search from q = %q, want Kreatif", uc.lastListInput.Search)
+	}
+}
+
 func TestGetTrainingCatalogSerializesNullOptionals(t *testing.T) {
 	uc := &fakeTrainingCatalogUseCase{getResult: entity.TrainingCatalog{PublicID: "YTP-000007", Title: "Kelas"}}
 

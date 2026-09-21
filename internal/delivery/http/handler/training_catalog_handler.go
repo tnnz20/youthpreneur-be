@@ -52,7 +52,15 @@ func (h *TrainingCatalogHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	search := query.Get("search")
+	if search == "" {
+		search = query.Get("q")
+	}
+
 	result, err := h.useCase.FindTrainingCatalogs(r.Context(), usecase.FindTrainingCatalogsInput{
+		Search:         search,
+		Title:          query.Get("title"),
+		Mentor:         query.Get("mentor"),
 		Category:       query.Get("category"),
 		TrainingStatus: query.Get("training_status"),
 		StartDate:      query.Get("start_date"),

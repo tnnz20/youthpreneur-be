@@ -90,6 +90,7 @@ func TestTrainingCatalogScanSharedAcrossJoinedEnrollment(t *testing.T) {
 		*(dest[14].(*int64)) = 100
 		*(dest[15].(*int64)) = 200
 		*(dest[16].(*sql.NullInt64)) = sql.NullInt64{Int64: 300, Valid: true}
+		*(dest[17].(*sql.NullInt64)) = sql.NullInt64{Int64: 5, Valid: true}
 	}
 
 	direct, err := scanTrainingCatalog(func(dest ...any) error {

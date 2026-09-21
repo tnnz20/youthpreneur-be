@@ -1063,11 +1063,14 @@ List active catalog entries with optional filters and cursor pagination.
 | --- | --- | --- | --- |
 | `cursor` | integer string | No | Return catalogs with `training_catalog.id` greater than cursor |
 | `limit` | integer | No | Page size, default 20, maximum 100 |
+| `search` / `q` | string | No | Case-insensitive substring match against `title` or `mentor` |
+| `title` | string | No | Case-insensitive substring match against `title` |
+| `mentor` | string | No | Case-insensitive substring match against `mentor` |
 | `category` | string | No | `training_category_enum` filter (`Wirausaha & Agribisnis`, `Kriya & Kreativitas`, `Digital & IPTEK`, `Olahraga & Prestasi`, `Komunitas & Pemuda`) |
 | `training_status` | string | No | `planned`, `ongoing`, or `completed` |
 | `start_date` | string | No | `YYYY-MM-DD` exact start date filter |
 
-`title`, `pic_phone`, `mentor`, `address`, `thumbnail`, `end_date`, link, slots, IDs, and timestamps are not
+`pic_phone`, `address`, `thumbnail`, `end_date`, link, slots, IDs, and timestamps are not
 filterable. `next_cursor` is omitted when no next page exists; clients must pass
 the returned value and must not construct cursors.
 

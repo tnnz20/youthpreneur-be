@@ -23,12 +23,15 @@ const findTrainingCatalogsQuery = `
 	SELECT ` + trainingCatalogColumns + `
 	FROM training_catalog c
 	WHERE c.deleted_at IS NULL
-	  AND ($1 = '' OR c.category = NULLIF($1, '')::training_category_enum)
-	  AND ($2 = '' OR c.training_status = NULLIF($2, '')::process_status_enum)
-	  AND ($3::date IS NULL OR c.start_date = $3::date)
-	  AND ($4::int = 0 OR c.id > $4)
+	  AND ($1 = '' OR (COALESCE(c.title, '') ILIKE '%' || $1 || '%' OR COALESCE(c.mentor, '') ILIKE '%' || $1 || '%'))
+	  AND ($2 = '' OR COALESCE(c.title, '') ILIKE '%' || $2 || '%')
+	  AND ($3 = '' OR COALESCE(c.mentor, '') ILIKE '%' || $3 || '%')
+	  AND ($4 = '' OR c.category = NULLIF($4, '')::training_category_enum)
+	  AND ($5 = '' OR c.training_status = NULLIF($5, '')::process_status_enum)
+	  AND ($6::date IS NULL OR c.start_date = $6::date)
+	  AND ($7::int = 0 OR c.id > $7)
 	ORDER BY c.id ASC
-	LIMIT $5`
+	LIMIT $8`
 
 type trainingCatalogRepository struct {
 	db *sql.DB
@@ -103,6 +106,9 @@ func (r trainingCatalogRepository) FindTrainingCatalogs(
 	filter entity.TrainingCatalogFilter,
 ) ([]entity.TrainingCatalog, error) {
 	rows, err := r.db.QueryContext(ctx, findTrainingCatalogsQuery,
+		filter.Search,
+		filter.Title,
+		filter.Mentor,
 		string(filter.Category),
 		string(filter.TrainingStatus),
 		nullTime(filter.StartDate),

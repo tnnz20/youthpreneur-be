@@ -75,6 +75,9 @@ type TrainingCatalogUpdate struct {
 // Cursor is the last seen training_catalog.id; zero starts from the first row.
 // Every filter is ignored when empty or nil.
 type TrainingCatalogFilter struct {
+	Search         string
+	Title          string
+	Mentor         string
 	Category       TrainingCategory
 	TrainingStatus ProcessStatus
 	StartDate      *time.Time
