@@ -65,6 +65,7 @@ bearer header. Passwords and token values never appear in responses or logs.
 | `DELETE /users/{publicID}` | Admin |
 | `PATCH /users/{publicID}/status` | Admin |
 | `POST /users/{publicID}/password/reset` | Admin |
+| `GET /enterprises/public` | Public |
 | `POST /enterprises` | Authenticated; any member or admin |
 | `GET /enterprises` | Authenticated; members see their own, admins see all |
 | `GET /enterprises/{publicID}` | Authenticated; owner or admin |
@@ -634,6 +635,9 @@ the owner is always the authenticated user and `user_id` is never read from the
 request body or query. Every create, update, and delete writes an audit row in
 `enterprise_audit_events` in the same transaction as the mutation.
 
+Enterprises use a generated `TPN-DDDDDD` public ID (`TPN-` plus six random digits),
+which distinguishes them from user and training IDs (`YTP-DDDDDD`).
+
 Enterprise business sectors (`business_sector_enum`): `Kuliner`,
 `Perdagangan Ritel`, `Agribisnis & Ketahanan Pangan`,
 `Jasa & Layanan Publik`, `Fashion & Konveksi`, `E-Commerce & Ekonomi Kreatif`.
@@ -651,8 +655,10 @@ Enterprise assessment enums:
 - `capital_access` and `partnership` (`general_status_enum`): `yes`, `no`,
   `in_progress`
 
-`name` and the assessment fields are nullable and serialize as JSON `null` when
-unset.
+`enterprise_name` is required, trimmed, and cannot be empty (up to 255 characters).
+`description` and `address` are optional `TEXT` fields.
+`focus_commodity` and `dispora_support` are optional `VARCHAR(255)` fields.
+The assessment fields are nullable and serialize as JSON `null` when unset.
 
 `initial_turnover` and `current_turnover` are non-negative `DECIMAL(15,2)`
 values serialized as JSON strings (for example `"1500.00"`) so precision is not
@@ -661,9 +667,62 @@ constraints that reject negative turnover and values at or above
 `10000000000000` from any writer, not only this API. `district` is nullable and
 serialized as JSON `null` when unset.
 
+Enterprise list and get responses are enriched with owner details: `user_public_id`
+(the owner's `YTP-DDDDDD` identifier) and `full_name` (from `user_profiles.full_name`,
+or `null` if unset).
+
 ---
 
-### 14. Create Enterprise
+### 14. List Public Enterprises
+
+List active enterprises for public consumption ordered by newest first with optional filters and cursor pagination. Does not expose turnover, audit history, or status.
+
+**Endpoint:** `GET /enterprises/public`
+
+**Authentication:** Public.
+
+**Query Parameters:**
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `cursor` | integer string | No | Return enterprises with `enterprises.id` less than cursor (newest first) |
+| `limit` | integer | No | Page size, default 9, maximum 100 |
+| `search` | string | No | Case-insensitive match on `enterprise_name` or owner `full_name` (`search` or `q`) |
+| `district` | string | No | Exact district filter |
+| `intervention_needs` | string | No | Supported `intervention_needs_enum` value |
+| `business_sector` | string | No | Supported `business_sector_enum` value |
+
+**Response:**
+
+```json
+{
+  "enterprises": [
+    {
+      "public_id": "TPN-482910",
+      "enterprise_name": "Warung Kopi",
+      "full_name": "Alice Example",
+      "business_sector": "Kuliner",
+      "district": "Bandung",
+      "description": "Warung kopi tradisional dengan biji kopi lokal",
+      "focus_commodity": "Kopi Robusta",
+      "dispora_support": "Pelatihan Barista",
+      "intervention_needs": "Permodalan",
+      "created_at": 1700000000
+    }
+  ],
+  "next_cursor": "42"
+}
+```
+
+`next_cursor` is omitted when no next page exists.
+
+**Status Code:** `200 OK`
+
+**Errors:** `400 Bad Request`, `500 Internal Server Error`
+
+---
+
+### 15. Create Enterprise
 
 Create an enterprise owned by the authenticated user.
 
@@ -677,8 +736,11 @@ Create an enterprise owned by the authenticated user.
 
 | Field | Type | Required | Format | Notes |
 | --- | --- | --- | --- | --- |
-| `name` | string | No | Up to 255 characters | Trimmed; empty stores `null` |
+| `enterprise_name` | string | ✓ | Up to 255 characters | Required; trimmed; cannot be empty |
 | `business_sector` | string | ✓ | Supported `business_sector_enum` value | Required |
+| `description` | string | No | Text | Optional; empty stores `null` |
+| `address` | string | No | Text | Optional; empty stores `null` |
+| `focus_commodity` | string | No | Up to 255 characters | Optional; empty stores `null` |
 | `legal_status` | string | No | Supported `legal_status_enum` value | Empty stores `null` |
 | `business_digitization` | string | No | Supported `business_digitization_enum` value | Empty stores `null` |
 | `intervention_needs` | string | No | Supported `intervention_needs_enum` value | Empty stores `null` |
@@ -697,8 +759,11 @@ The owner is the authenticated user and the initial `status` is always
 
 ```json
 {
-  "name": "Warung Kopi",
+  "enterprise_name": "Warung Kopi",
   "business_sector": "Kuliner",
+  "description": "Warung kopi tradisional dengan biji kopi lokal",
+  "address": "Jl. Asia Afrika No. 10",
+  "focus_commodity": "Kopi Robusta",
   "legal_status": "complete",
   "business_digitization": "high",
   "intervention_needs": "Permodalan",
@@ -716,9 +781,15 @@ The owner is the authenticated user and the initial `status` is always
 
 ```json
 {
-  "public_id": "YTP-482910",
-  "name": "Warung Kopi",
+  "public_id": "TPN-482910",
+  "user_public_id": "YTP-482910",
+  "full_name": "Alice Example",
+  "enterprise_name": "Warung Kopi",
   "business_sector": "Kuliner",
+  "description": "Warung kopi tradisional dengan biji kopi lokal",
+  "address": "Jl. Asia Afrika No. 10",
+  "focus_commodity": "Kopi Robusta",
+  "dispora_support": null,
   "legal_status": "complete",
   "business_digitization": "high",
   "intervention_needs": "Permodalan",
@@ -742,7 +813,7 @@ The owner is the authenticated user and the initial `status` is always
 
 ---
 
-### 15. List Enterprises
+### 16. List Enterprises
 
 List active enterprises with optional filters and cursor pagination.
 
@@ -755,8 +826,9 @@ admins are not owner-restricted.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
-| `cursor` | integer string | No | Return enterprises with `enterprises.id` greater than cursor |
+| `cursor` | integer string | No | Return enterprises with `enterprises.id` less than cursor (newest first) |
 | `limit` | integer | No | Page size, default 20, maximum 100 |
+| `search` | string | No | Case-insensitive match on `enterprise_name` or owner `full_name` (`search` or `q`) |
 | `district` | string | No | Exact district filter |
 | `status` | string | No | `active` or `inactive` |
 | `business_sector` | string | No | Supported `business_sector_enum` value |
@@ -768,7 +840,7 @@ admins are not owner-restricted.
 | `capital_access` | string | No | Supported `general_status_enum` value |
 | `partnership` | string | No | Supported `general_status_enum` value |
 
-`name`, turnover values, IDs, and timestamps are intentionally not filterable.
+Turnover values, IDs, and timestamps are intentionally not filterable. Results are ordered newest first (`ORDER BY e.id DESC`).
 
 **Response:**
 
@@ -776,9 +848,15 @@ admins are not owner-restricted.
 {
   "enterprises": [
     {
-      "public_id": "YTP-482910",
-      "name": "Warung Kopi",
+      "public_id": "TPN-482910",
+      "user_public_id": "YTP-482910",
+      "full_name": "Alice Example",
+      "enterprise_name": "Warung Kopi",
       "business_sector": "Kuliner",
+      "description": "Warung kopi tradisional dengan biji kopi lokal",
+      "address": "Jl. Asia Afrika No. 10",
+      "focus_commodity": "Kopi Robusta",
+      "dispora_support": "Pelatihan Barista",
       "legal_status": "complete",
       "business_digitization": "high",
       "intervention_needs": "Permodalan",
@@ -807,7 +885,7 @@ returned by the server and must not construct cursors.
 
 ---
 
-### 16. Get Enterprise
+### 17. Get Enterprise
 
 Retrieve one active enterprise by public ID.
 
@@ -816,7 +894,7 @@ Retrieve one active enterprise by public ID.
 **Authentication:** Authenticated; owner or admin. A member receives `404` for
 an enterprise they do not own.
 
-**Path Parameter:** `publicID` uses `YTP-` plus six random decimal digits.
+**Path Parameter:** `publicID` uses `TPN-` plus six random decimal digits (`TPN-DDDDDD`).
 
 **Response:** The enterprise object shown in the list response.
 
@@ -826,7 +904,7 @@ an enterprise they do not own.
 
 ---
 
-### 17. Update Enterprise
+### 18. Update Enterprise
 
 Partially update an active enterprise. Omitted fields keep their current value.
 
@@ -838,8 +916,12 @@ Partially update an active enterprise. Omitted fields keep their current value.
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `name` | string | No | At most 255 characters; empty clears to `null` |
+| `enterprise_name` | string | No | At most 255 characters; cannot be empty string |
 | `business_sector` | string | No | Supported `business_sector_enum` value |
+| `description` | string | No | Empty clears to `null` |
+| `address` | string | No | Empty clears to `null` |
+| `focus_commodity` | string | No | At most 255 characters; empty clears to `null` |
+| `dispora_support` | string | No | Admin only; at most 255 characters; empty clears to `null` |
 | `legal_status` | string | No | Admin only; supported `legal_status_enum` value |
 | `business_digitization` | string | No | Admin only; supported `business_digitization_enum` value |
 | `intervention_needs` | string | No | Admin only; supported `intervention_needs_enum` value |
@@ -849,12 +931,13 @@ Partially update an active enterprise. Omitted fields keep their current value.
 | `partnership` | string | No | Admin only; supported `general_status_enum` value |
 | `initial_turnover` | string | No | Non-negative `DECIMAL(15,2)` |
 | `current_turnover` | string | No | Non-negative `DECIMAL(15,2)` |
-| `district` | string | No | Admin only; empty clears to `null` |
+| `district` | string | No | Empty clears to `null` |
 | `status` | string | No | Admin only; `active` or `inactive` |
 
-Owners may change only `name`, `business_sector`, `initial_turnover`, and
-`current_turnover`. An owner request that includes `district`, `status`, or any
-assessment field is rejected with `403`. Admins may change any mutable field.
+Owners may change `enterprise_name`, `business_sector`, `district`, `description`,
+`address`, `focus_commodity`, `initial_turnover`, and `current_turnover`.
+An owner request that includes `dispora_support`, `status`, or any assessment field
+is rejected with `403`. Admins may change any mutable field.
 The response is the updated enterprise object.
 
 **Status Code:** `200 OK`
@@ -864,7 +947,7 @@ The response is the updated enterprise object.
 
 ---
 
-### 18. Soft Delete Enterprise
+### 19. Soft Delete Enterprise
 
 Soft delete an active enterprise and record an audit event.
 
@@ -906,7 +989,7 @@ the catalog row with `SELECT ... FOR UPDATE`, then counts active enrollments so
 
 ---
 
-### 19. List Training Catalog
+### 20. List Training Catalog
 
 List active catalog entries with optional filters and cursor pagination.
 
@@ -960,7 +1043,7 @@ the returned value and must not construct cursors.
 
 ---
 
-### 20. Get Training Catalog
+### 21. Get Training Catalog
 
 Retrieve one active catalog entry by public ID.
 
@@ -977,7 +1060,7 @@ serialize as JSON `null` when unset.
 
 ---
 
-### 21. Create Training Catalog
+### 22. Create Training Catalog
 
 Create a catalog entry.
 
@@ -1009,7 +1092,7 @@ Create a catalog entry.
 
 ---
 
-### 22. Update Training Catalog
+### 23. Update Training Catalog
 
 Partially update an active catalog entry. Omitted fields keep their current
 value; an empty string clears a nullable string field. `training_date` may be
@@ -1032,7 +1115,7 @@ supplied, must be positive. At least one field is required.
 
 ---
 
-### 23. Update Training Catalog Status
+### 24. Update Training Catalog Status
 
 Change only the training status of an active catalog entry.
 
@@ -1055,7 +1138,7 @@ Change only the training status of an active catalog entry.
 
 ---
 
-### 24. Soft Delete Training Catalog
+### 25. Soft Delete Training Catalog
 
 Soft delete an active catalog entry.
 
@@ -1074,7 +1157,7 @@ enrollments are retained.
 
 ---
 
-### 25. Enroll in Training
+### 26. Enroll in Training
 
 Enroll the authenticated user in a catalog offering.
 
@@ -1126,7 +1209,7 @@ soft deleted.
 
 ---
 
-### 26. Cancel Training Enrollment
+### 27. Cancel Training Enrollment
 
 Cancel the caller's active enrollment.
 
@@ -1145,7 +1228,7 @@ enroll again afterward.
 
 ---
 
-### 27. My Training Enrollment History
+### 28. My Training Enrollment History
 
 List the current user's enrollment history, including cancelled enrollments.
 
@@ -1183,7 +1266,7 @@ List the current user's enrollment history, including cancelled enrollments.
 
 ---
 
-### 28. All Training Enrollment History
+### 29. All Training Enrollment History
 
 List every user's enrollment history, including cancelled enrollments.
 
@@ -1202,7 +1285,7 @@ List every user's enrollment history, including cancelled enrollments.
 
 ---
 
-### 29. Catalog Training Enrollment History
+### 30. Catalog Training Enrollment History
 
 List one catalog's enrollment history, including cancelled enrollments.
 
@@ -1254,7 +1337,7 @@ Request bodies are limited to 1 MiB. Unknown JSON fields are currently ignored.
 - `deleted_at` is omitted from API responses and is NULL until soft deletion.
 - `birth_date` uses ISO 8601 `YYYY-MM-DD`.
 - User, profile, and enterprise primary keys are internal `SERIAL` integers.
-- Public IDs use `YTP-DDDDDD`; they are lookup handles, not secrets or auth tokens.
+- Public IDs use `YTP-DDDDDD` for users and training catalogs/enrollments, and `TPN-DDDDDD` for enterprises; they are lookup handles, not secrets or auth tokens.
 - Password hashes are stored in `users.password` and never serialized.
 - Refresh sessions store only SHA-256 token hashes plus expiry, revoke state, a
   `family_id`, a `revocation_reason`, and — only during the 10-second rotation
@@ -1265,8 +1348,8 @@ Request bodies are limited to 1 MiB. Unknown JSON fields are currently ignored.
 - Enterprise turnover uses `DECIMAL(15,2)` and is serialized as a JSON string.
 - Enterprise ownership is one-to-many: one user owns many enterprises, and
   `enterprises.user_id` is always server-derived from the authenticated user.
-- Enterprise `name` and assessment enums are nullable; `business_sector` and
-  `status` are required, and `status` defaults to `active`.
+- Enterprise `enterprise_name`, `business_sector`, and `status` are required, and `status` defaults to `active`.
+  `description`, `address`, `focus_commodity`, `dispora_support`, `district`, and assessment enums are nullable.
 - Enterprise mutations write an `enterprise_audit_events` row (actor, action,
   changed fields JSONB, timestamp) in the same transaction. Migration `000003`
   adds the enterprise tables, the `business_sector_enum`, `enterprise_status_enum`,
@@ -1276,6 +1359,10 @@ Request bodies are limited to 1 MiB. Unknown JSON fields are currently ignored.
   `business_digitization`, `intervention_needs`, `training_status`,
   `mentoring_status`, `capital_access`, `partnership`, `deleted_at`, plus
   cursor-friendly and composite owner/deleted/id combinations.
+- Migration `000007` renames `enterprises.name` to `enterprise_name` (NOT NULL),
+  adds `description` (TEXT), `address` (TEXT), `focus_commodity` (VARCHAR(255)),
+  `dispora_support` (VARCHAR(255)), and changes enterprise public ID generation
+  and check constraint to `TPN-[0-9]{6}`.
 - Training catalog optional fields are nullable; `training_slots` is a positive
   `INTEGER` or `NULL` for unlimited. Catalog `training_status` reuses
   `process_status_enum`; enrollment creation reserves capacity while the status

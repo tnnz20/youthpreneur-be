@@ -3,6 +3,7 @@ package usecase_test
 import (
 	"context"
 	"errors"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -10,6 +11,8 @@ import (
 	"github.com/tnnz20/youthpreneur-be/internal/repository"
 	"github.com/tnnz20/youthpreneur-be/internal/usecase"
 )
+
+var enterprisePublicIDPattern = regexp.MustCompile(`^TPN-[0-9]{6}$`)
 
 type fakeEnterpriseRepository struct {
 	createErr      error
@@ -25,6 +28,10 @@ type fakeEnterpriseRepository struct {
 	listResult []entity.Enterprise
 	listErr    error
 	lastFilter entity.EnterpriseFilter
+
+	publicResult     []entity.PublicEnterprise
+	publicErr        error
+	lastPublicFilter entity.PublicEnterpriseFilter
 
 	updateErr       error
 	updateCalls     int
@@ -83,6 +90,15 @@ func (f *fakeEnterpriseRepository) FindEnterprises(
 	return f.listResult, f.listErr
 }
 
+func (f *fakeEnterpriseRepository) FindPublicEnterprises(
+	_ context.Context,
+	filter entity.PublicEnterpriseFilter,
+) ([]entity.PublicEnterprise, error) {
+	f.lastPublicFilter = filter
+
+	return f.publicResult, f.publicErr
+}
+
 func (f *fakeEnterpriseRepository) UpdateEnterprise(
 	_ context.Context,
 	_ string,
@@ -105,8 +121,20 @@ func (f *fakeEnterpriseRepository) UpdateEnterprise(
 }
 
 func applyFakeEnterpriseUpdate(enterprise entity.Enterprise, update entity.EnterpriseUpdate) entity.Enterprise {
-	if update.Name != nil {
-		enterprise.Name = *update.Name
+	if update.EnterpriseName != nil {
+		enterprise.EnterpriseName = *update.EnterpriseName
+	}
+	if update.Description != nil {
+		enterprise.Description = *update.Description
+	}
+	if update.Address != nil {
+		enterprise.Address = *update.Address
+	}
+	if update.FocusCommodity != nil {
+		enterprise.FocusCommodity = *update.FocusCommodity
+	}
+	if update.DisporaSupport != nil {
+		enterprise.DisporaSupport = *update.DisporaSupport
 	}
 	if update.BusinessSector != nil {
 		enterprise.BusinessSector = *update.BusinessSector
@@ -182,7 +210,7 @@ func TestCreateEnterpriseAssignsOwnerAndNormalizesInput(t *testing.T) {
 
 	created, err := uc.CreateEnterprise(context.Background(), usecase.CreateEnterpriseInput{
 		Actor:           memberActor(),
-		Name:            "  Warung Kopi  ",
+		EnterpriseName:  "  Warung Kopi  ",
 		BusinessSector:  "Kuliner",
 		InitialTurnover: "1500",
 		CurrentTurnover: "",
@@ -191,14 +219,14 @@ func TestCreateEnterpriseAssignsOwnerAndNormalizesInput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateEnterprise() error = %v", err)
 	}
-	if !publicIDPattern.MatchString(created.PublicID) {
-		t.Errorf("public id = %q, want YTP- plus six digits", created.PublicID)
+	if !enterprisePublicIDPattern.MatchString(created.PublicID) {
+		t.Errorf("public id = %q, want TPN- plus six digits", created.PublicID)
 	}
 	if created.UserID != 7 {
 		t.Errorf("owner = %d, want 7", created.UserID)
 	}
-	if created.Name != "Warung Kopi" {
-		t.Errorf("name = %q, want trimmed", created.Name)
+	if created.EnterpriseName != "Warung Kopi" {
+		t.Errorf("enterprise_name = %q, want trimmed", created.EnterpriseName)
 	}
 	if created.InitialTurnover != "1500.00" || created.CurrentTurnover != "0.00" {
 		t.Errorf("turnovers = (%q, %q), want canonical 1500.00 and 0.00", created.InitialTurnover, created.CurrentTurnover)
@@ -215,8 +243,8 @@ func TestCreateEnterpriseAssignsOwnerAndNormalizesInput(t *testing.T) {
 	if repo.lastCreateEvnt.ActorUserID != 7 {
 		t.Errorf("audit actor = %d, want 7", repo.lastCreateEvnt.ActorUserID)
 	}
-	if repo.lastCreateEvnt.ChangedFields["name"] != "Warung Kopi" {
-		t.Errorf("audit changed fields = %v, want name", repo.lastCreateEvnt.ChangedFields)
+	if repo.lastCreateEvnt.ChangedFields["enterprise_name"] != "Warung Kopi" {
+		t.Errorf("audit changed fields = %v, want enterprise_name", repo.lastCreateEvnt.ChangedFields)
 	}
 }
 
@@ -237,7 +265,7 @@ func TestCreateEnterpriseCanonicalizesTurnoverPrecision(t *testing.T) {
 
 			created, err := uc.CreateEnterprise(context.Background(), usecase.CreateEnterpriseInput{
 				Actor:           memberActor(),
-				Name:            "Toko",
+				EnterpriseName:  "Toko",
 				BusinessSector:  "Perdagangan Ritel",
 				InitialTurnover: tc.input,
 			})
@@ -256,7 +284,7 @@ func TestCreateEnterpriseRejectsZeroActor(t *testing.T) {
 	uc := usecase.NewEnterpriseUseCase(repo)
 
 	_, err := uc.CreateEnterprise(context.Background(), usecase.CreateEnterpriseInput{
-		Name:           "Toko",
+		EnterpriseName: "Toko",
 		BusinessSector: "Perdagangan Ritel",
 	})
 	if !errors.Is(err, usecase.ErrForbidden) {
@@ -267,6 +295,20 @@ func TestCreateEnterpriseRejectsZeroActor(t *testing.T) {
 	}
 }
 
+func TestCreateEnterpriseRequiresNonEmptyName(t *testing.T) {
+	repo := &fakeEnterpriseRepository{}
+	uc := usecase.NewEnterpriseUseCase(repo)
+
+	_, err := uc.CreateEnterprise(context.Background(), usecase.CreateEnterpriseInput{
+		Actor:          memberActor(),
+		EnterpriseName: "   ",
+		BusinessSector: "Perdagangan Ritel",
+	})
+	if !errors.Is(err, usecase.ErrBadRequest) {
+		t.Fatalf("CreateEnterprise() error = %v, want ErrBadRequest", err)
+	}
+}
+
 func TestCreateEnterpriseAllowsManyPerOwner(t *testing.T) {
 	repo := &fakeEnterpriseRepository{}
 	uc := usecase.NewEnterpriseUseCase(repo)
@@ -274,7 +316,7 @@ func TestCreateEnterpriseAllowsManyPerOwner(t *testing.T) {
 	for range 2 {
 		if _, err := uc.CreateEnterprise(context.Background(), usecase.CreateEnterpriseInput{
 			Actor:          memberActor(),
-			Name:           "Toko",
+			EnterpriseName: "Toko",
 			BusinessSector: "Perdagangan Ritel",
 		}); err != nil {
 			t.Fatalf("CreateEnterprise() error = %v", err)
@@ -296,51 +338,60 @@ func TestCreateEnterpriseValidation(t *testing.T) {
 	}{
 		{
 			name:  "name too long",
-			input: usecase.CreateEnterpriseInput{Actor: memberActor(), Name: strings.Repeat("a", 256), BusinessSector: "Perdagangan Ritel"},
+			input: usecase.CreateEnterpriseInput{Actor: memberActor(), EnterpriseName: strings.Repeat("a", 256), BusinessSector: "Perdagangan Ritel"},
 		},
 		{
 			name:  "unknown sector",
-			input: usecase.CreateEnterpriseInput{Actor: memberActor(), Name: "Toko", BusinessSector: "bogus"},
+			input: usecase.CreateEnterpriseInput{Actor: memberActor(), EnterpriseName: "Toko", BusinessSector: "bogus"},
 		},
 		{
 			name:  "unknown legal status",
-			input: usecase.CreateEnterpriseInput{Actor: memberActor(), Name: "Toko", BusinessSector: "Perdagangan Ritel", LegalStatus: "bogus"},
+			input: usecase.CreateEnterpriseInput{Actor: memberActor(), EnterpriseName: "Toko", BusinessSector: "Perdagangan Ritel", LegalStatus: "bogus"},
 		},
 		{
 			name:  "unknown digitization",
-			input: usecase.CreateEnterpriseInput{Actor: memberActor(), Name: "Toko", BusinessSector: "Perdagangan Ritel", BusinessDigitization: "bogus"},
+			input: usecase.CreateEnterpriseInput{Actor: memberActor(), EnterpriseName: "Toko", BusinessSector: "Perdagangan Ritel", BusinessDigitization: "bogus"},
 		},
 		{
 			name:  "unknown intervention needs",
-			input: usecase.CreateEnterpriseInput{Actor: memberActor(), Name: "Toko", BusinessSector: "Perdagangan Ritel", InterventionNeeds: "bogus"},
+			input: usecase.CreateEnterpriseInput{Actor: memberActor(), EnterpriseName: "Toko", BusinessSector: "Perdagangan Ritel", InterventionNeeds: "bogus"},
 		},
 		{
 			name:  "unknown training status",
-			input: usecase.CreateEnterpriseInput{Actor: memberActor(), Name: "Toko", BusinessSector: "Perdagangan Ritel", TrainingStatus: "bogus"},
+			input: usecase.CreateEnterpriseInput{Actor: memberActor(), EnterpriseName: "Toko", BusinessSector: "Perdagangan Ritel", TrainingStatus: "bogus"},
 		},
 		{
 			name:  "unknown capital access",
-			input: usecase.CreateEnterpriseInput{Actor: memberActor(), Name: "Toko", BusinessSector: "Perdagangan Ritel", CapitalAccess: "bogus"},
+			input: usecase.CreateEnterpriseInput{Actor: memberActor(), EnterpriseName: "Toko", BusinessSector: "Perdagangan Ritel", CapitalAccess: "bogus"},
 		},
 		{
 			name:  "negative turnover",
-			input: usecase.CreateEnterpriseInput{Actor: memberActor(), Name: "Toko", BusinessSector: "Perdagangan Ritel", InitialTurnover: "-1"},
+			input: usecase.CreateEnterpriseInput{Actor: memberActor(), EnterpriseName: "Toko", BusinessSector: "Perdagangan Ritel", InitialTurnover: "-1"},
 		},
 		{
 			name:  "too many decimals",
-			input: usecase.CreateEnterpriseInput{Actor: memberActor(), Name: "Toko", BusinessSector: "Perdagangan Ritel", CurrentTurnover: "1.234"},
+			input: usecase.CreateEnterpriseInput{Actor: memberActor(), EnterpriseName: "Toko", BusinessSector: "Perdagangan Ritel", CurrentTurnover: "1.234"},
 		},
 		{
 			name:  "turnover beyond fifteen digits",
-			input: usecase.CreateEnterpriseInput{Actor: memberActor(), Name: "Toko", BusinessSector: "Perdagangan Ritel", CurrentTurnover: "10000000000000"},
+			input: usecase.CreateEnterpriseInput{Actor: memberActor(), EnterpriseName: "Toko", BusinessSector: "Perdagangan Ritel", CurrentTurnover: "10000000000000"},
 		},
 		{
 			name: "district too long",
 			input: usecase.CreateEnterpriseInput{
 				Actor:          memberActor(),
-				Name:           "Toko",
+				EnterpriseName: "Toko",
 				BusinessSector: "Perdagangan Ritel",
 				District:       strings.Repeat("a", 129),
+			},
+		},
+		{
+			name: "focus commodity too long",
+			input: usecase.CreateEnterpriseInput{
+				Actor:          memberActor(),
+				EnterpriseName: "Toko",
+				BusinessSector: "Perdagangan Ritel",
+				FocusCommodity: strings.Repeat("a", 256),
 			},
 		},
 	}
@@ -366,7 +417,7 @@ func TestCreateEnterpriseRetriesPublicIDCollisions(t *testing.T) {
 
 	_, err := uc.CreateEnterprise(context.Background(), usecase.CreateEnterpriseInput{
 		Actor:          memberActor(),
-		Name:           "Toko",
+		EnterpriseName: "Toko",
 		BusinessSector: "Perdagangan Ritel",
 	})
 	if !errors.Is(err, usecase.ErrPublicIDGeneration) {
@@ -423,6 +474,70 @@ func TestFindEnterprisesPaginatesWithLimitPlusOne(t *testing.T) {
 	}
 }
 
+func TestFindPublicEnterprisesOrdersNewestAndPaginates(t *testing.T) {
+	repo := &fakeEnterpriseRepository{
+		publicResult: []entity.PublicEnterprise{
+			{ID: 30, PublicID: "TPN-000030", EnterpriseName: "Three"},
+			{ID: 20, PublicID: "TPN-000020", EnterpriseName: "Two"},
+			{ID: 10, PublicID: "TPN-000010", EnterpriseName: "One"},
+		},
+	}
+	uc := usecase.NewEnterpriseUseCase(repo)
+
+	result, err := uc.FindPublicEnterprises(context.Background(), usecase.FindPublicEnterprisesInput{
+		Search:            "Three",
+		District:          "Bandung",
+		InterventionNeeds: "Pelatihan",
+		BusinessSector:    "Kuliner",
+		Cursor:            50,
+		Limit:             2,
+	})
+	if err != nil {
+		t.Fatalf("FindPublicEnterprises() error = %v", err)
+	}
+	if repo.lastPublicFilter.Search != "Three" {
+		t.Errorf("search filter = %q, want Three", repo.lastPublicFilter.Search)
+	}
+	if repo.lastPublicFilter.District != "Bandung" {
+		t.Errorf("district filter = %q, want Bandung", repo.lastPublicFilter.District)
+	}
+	if repo.lastPublicFilter.InterventionNeeds != entity.InterventionNeedsPelatihan {
+		t.Errorf("intervention needs = %v, want Pelatihan", repo.lastPublicFilter.InterventionNeeds)
+	}
+	if repo.lastPublicFilter.BusinessSector != entity.BusinessSectorKuliner {
+		t.Errorf("business sector = %v, want Kuliner", repo.lastPublicFilter.BusinessSector)
+	}
+	if repo.lastPublicFilter.Cursor != 50 {
+		t.Errorf("cursor = %d, want 50", repo.lastPublicFilter.Cursor)
+	}
+	if repo.lastPublicFilter.Limit != 3 {
+		t.Errorf("limit = %d, want 3 (limit+1)", repo.lastPublicFilter.Limit)
+	}
+	if len(result.Enterprises) != 2 {
+		t.Fatalf("enterprises = %d, want 2", len(result.Enterprises))
+	}
+	if result.NextCursor != 20 {
+		t.Errorf("next cursor = %d, want 20", result.NextCursor)
+	}
+}
+
+func TestFindPublicEnterprisesDefaultsLimitToNine(t *testing.T) {
+	repo := &fakeEnterpriseRepository{
+		publicResult: []entity.PublicEnterprise{
+			{ID: 1, PublicID: "TPN-000001", EnterpriseName: "One"},
+		},
+	}
+	uc := usecase.NewEnterpriseUseCase(repo)
+
+	_, err := uc.FindPublicEnterprises(context.Background(), usecase.FindPublicEnterprisesInput{})
+	if err != nil {
+		t.Fatalf("FindPublicEnterprises() error = %v", err)
+	}
+	if repo.lastPublicFilter.Limit != 10 { // 9 + 1 for next page detection
+		t.Errorf("public filter limit = %d, want 10 (default 9 + 1)", repo.lastPublicFilter.Limit)
+	}
+}
+
 func TestFindEnterprisesRejectsInvalidFilters(t *testing.T) {
 	cases := []usecase.FindEnterprisesInput{
 		{Actor: memberActor(), Status: "bogus"},
@@ -452,6 +567,7 @@ func TestFindEnterprisesPassesEnumFilters(t *testing.T) {
 
 	_, err := uc.FindEnterprises(context.Background(), usecase.FindEnterprisesInput{
 		Actor:                memberActor(),
+		Search:               "Warung",
 		LegalStatus:          "complete",
 		BusinessDigitization: "high",
 		InterventionNeeds:    "Pelatihan",
@@ -463,22 +579,23 @@ func TestFindEnterprisesPassesEnumFilters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FindEnterprises() error = %v", err)
 	}
-	if repo.lastFilter.LegalStatus != entity.LegalStatusComplete ||
+	if repo.lastFilter.Search != "Warung" ||
+		repo.lastFilter.LegalStatus != entity.LegalStatusComplete ||
 		repo.lastFilter.BusinessDigitization != entity.BusinessDigitizationHigh ||
 		repo.lastFilter.InterventionNeeds != entity.InterventionNeedsPelatihan ||
 		repo.lastFilter.TrainingStatus != entity.ProcessStatusCompleted ||
 		repo.lastFilter.MentoringStatus != entity.ProcessStatusOngoing ||
 		repo.lastFilter.CapitalAccess != entity.GeneralStatusYes ||
 		repo.lastFilter.Partnership != entity.GeneralStatusNo {
-		t.Errorf("filter = %+v, want enum filters passed through", repo.lastFilter)
+		t.Errorf("filter = %+v, want search and enum filters passed through", repo.lastFilter)
 	}
 }
 
 func TestGetEnterpriseScopesOwnerAndMapsNotFound(t *testing.T) {
-	repo := &fakeEnterpriseRepository{findResult: entity.Enterprise{ID: 3, PublicID: "YTP-000003"}}
+	repo := &fakeEnterpriseRepository{findResult: entity.Enterprise{ID: 3, PublicID: "TPN-000003"}}
 	uc := usecase.NewEnterpriseUseCase(repo)
 
-	if _, err := uc.GetEnterprise(context.Background(), memberActor(), "YTP-000003"); err != nil {
+	if _, err := uc.GetEnterprise(context.Background(), memberActor(), "TPN-000003"); err != nil {
 		t.Fatalf("GetEnterprise() error = %v", err)
 	}
 	if repo.lastFindOwnerID != 7 {
@@ -487,16 +604,16 @@ func TestGetEnterpriseScopesOwnerAndMapsNotFound(t *testing.T) {
 
 	missing := &fakeEnterpriseRepository{}
 	uc = usecase.NewEnterpriseUseCase(missing)
-	if _, err := uc.GetEnterprise(context.Background(), memberActor(), "YTP-000404"); !errors.Is(err, usecase.ErrEnterpriseNotFound) {
+	if _, err := uc.GetEnterprise(context.Background(), memberActor(), "TPN-000404"); !errors.Is(err, usecase.ErrEnterpriseNotFound) {
 		t.Fatalf("GetEnterprise() error = %v, want ErrEnterpriseNotFound", err)
 	}
 }
 
 func TestAdminGetEnterpriseIsUnscoped(t *testing.T) {
-	repo := &fakeEnterpriseRepository{findResult: entity.Enterprise{ID: 3, PublicID: "YTP-000003"}}
+	repo := &fakeEnterpriseRepository{findResult: entity.Enterprise{ID: 3, PublicID: "TPN-000003"}}
 	uc := usecase.NewEnterpriseUseCase(repo)
 
-	if _, err := uc.GetEnterprise(context.Background(), adminActor(), "YTP-000003"); err != nil {
+	if _, err := uc.GetEnterprise(context.Background(), adminActor(), "TPN-000003"); err != nil {
 		t.Fatalf("GetEnterprise() error = %v", err)
 	}
 	if repo.lastFindOwnerID != 0 {
@@ -507,18 +624,23 @@ func TestAdminGetEnterpriseIsUnscoped(t *testing.T) {
 func TestUpdateEnterpriseOwnerChangesAllowedFields(t *testing.T) {
 	repo := &fakeEnterpriseRepository{findResult: entity.Enterprise{
 		ID:              5,
-		PublicID:        "YTP-000005",
+		PublicID:        "TPN-000005",
 		UserID:          7,
-		Name:            "Old",
+		EnterpriseName:  "Old",
 		BusinessSector:  entity.BusinessSectorPerdaganganRitel,
+		District:        "Old District",
 		InitialTurnover: "10.00",
 		CurrentTurnover: "20.00",
 		Status:          entity.EnterpriseStatusActive,
 	}}
 	uc := usecase.NewEnterpriseUseCase(repo)
 
-	updated, err := uc.UpdateEnterprise(context.Background(), memberActor(), "YTP-000005", usecase.UpdateEnterpriseInput{
-		Name:            stringPtr("New"),
+	updated, err := uc.UpdateEnterprise(context.Background(), memberActor(), "TPN-000005", usecase.UpdateEnterpriseInput{
+		EnterpriseName:  stringPtr("New"),
+		District:        stringPtr("New District"),
+		Description:     stringPtr("New Description"),
+		Address:         stringPtr("New Address"),
+		FocusCommodity:  stringPtr("New Focus"),
 		CurrentTurnover: stringPtr("30"),
 	})
 	if err != nil {
@@ -527,14 +649,20 @@ func TestUpdateEnterpriseOwnerChangesAllowedFields(t *testing.T) {
 	if repo.lastUpdateOwner != 7 {
 		t.Errorf("owner scope = %d, want 7", repo.lastUpdateOwner)
 	}
-	if updated.Name != "New" || updated.CurrentTurnover != "30.00" {
+	if updated.EnterpriseName != "New" || updated.CurrentTurnover != "30.00" {
 		t.Errorf("updated = %+v, want New and 30.00", updated)
+	}
+	if updated.District != "New District" {
+		t.Errorf("district = %q, want New District", updated.District)
+	}
+	if updated.Description != "New Description" || updated.Address != "New Address" || updated.FocusCommodity != "New Focus" {
+		t.Errorf("updated text fields = %+v", updated)
 	}
 	if updated.InitialTurnover != "10.00" {
 		t.Errorf("initial turnover = %q, want untouched 10.00", updated.InitialTurnover)
 	}
-	if repo.lastUpdate.Name == nil || *repo.lastUpdate.Name != "New" {
-		t.Errorf("update patch name = %v, want New", repo.lastUpdate.Name)
+	if repo.lastUpdate.EnterpriseName == nil || *repo.lastUpdate.EnterpriseName != "New" {
+		t.Errorf("update patch enterprise_name = %v, want New", repo.lastUpdate.EnterpriseName)
 	}
 	if repo.lastUpdate.CurrentTurnover == nil || *repo.lastUpdate.CurrentTurnover != "30.00" {
 		t.Errorf("update patch current_turnover = %v, want canonical 30.00", repo.lastUpdate.CurrentTurnover)
@@ -547,10 +675,10 @@ func TestUpdateEnterpriseOwnerChangesAllowedFields(t *testing.T) {
 	}
 }
 
-func TestUpdateEnterpriseOwnerCannotChangeStatusOrDistrict(t *testing.T) {
+func TestUpdateEnterpriseOwnerCannotChangeStatusOrAssessment(t *testing.T) {
 	cases := []usecase.UpdateEnterpriseInput{
 		{Status: stringPtr("inactive")},
-		{District: stringPtr("Jakarta")},
+		{DisporaSupport: stringPtr("Grant 2025")},
 		{LegalStatus: stringPtr("complete")},
 		{BusinessDigitization: stringPtr("high")},
 		{InterventionNeeds: stringPtr("Pelatihan")},
@@ -561,10 +689,10 @@ func TestUpdateEnterpriseOwnerCannotChangeStatusOrDistrict(t *testing.T) {
 	}
 
 	for _, input := range cases {
-		repo := &fakeEnterpriseRepository{findResult: entity.Enterprise{ID: 5, PublicID: "YTP-000005", UserID: 7}}
+		repo := &fakeEnterpriseRepository{findResult: entity.Enterprise{ID: 5, PublicID: "TPN-000005", UserID: 7}}
 		uc := usecase.NewEnterpriseUseCase(repo)
 
-		if _, err := uc.UpdateEnterprise(context.Background(), memberActor(), "YTP-000005", input); !errors.Is(err, usecase.ErrForbidden) {
+		if _, err := uc.UpdateEnterprise(context.Background(), memberActor(), "TPN-000005", input); !errors.Is(err, usecase.ErrForbidden) {
 			t.Fatalf("UpdateEnterprise() error = %v, want ErrForbidden", err)
 		}
 		if repo.updateCalls != 0 {
@@ -576,7 +704,7 @@ func TestUpdateEnterpriseOwnerCannotChangeStatusOrDistrict(t *testing.T) {
 func TestUpdateEnterpriseAdminChangesAnyMutableField(t *testing.T) {
 	repo := &fakeEnterpriseRepository{findResult: entity.Enterprise{
 		ID:              5,
-		PublicID:        "YTP-000005",
+		PublicID:        "TPN-000005",
 		Status:          entity.EnterpriseStatusActive,
 		BusinessSector:  entity.BusinessSectorPerdaganganRitel,
 		InitialTurnover: "0.00",
@@ -584,9 +712,10 @@ func TestUpdateEnterpriseAdminChangesAnyMutableField(t *testing.T) {
 	}}
 	uc := usecase.NewEnterpriseUseCase(repo)
 
-	updated, err := uc.UpdateEnterprise(context.Background(), adminActor(), "YTP-000005", usecase.UpdateEnterpriseInput{
+	updated, err := uc.UpdateEnterprise(context.Background(), adminActor(), "TPN-000005", usecase.UpdateEnterpriseInput{
 		Status:               stringPtr("inactive"),
 		District:             stringPtr("Jakarta"),
+		DisporaSupport:       stringPtr("Grant 2025"),
 		LegalStatus:          stringPtr("complete"),
 		BusinessDigitization: stringPtr("high"),
 		InterventionNeeds:    stringPtr("Pelatihan"),
@@ -598,8 +727,8 @@ func TestUpdateEnterpriseAdminChangesAnyMutableField(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpdateEnterprise() error = %v", err)
 	}
-	if updated.Status != entity.EnterpriseStatusInactive || updated.District != "Jakarta" {
-		t.Errorf("updated = %+v, want inactive and Jakarta", updated)
+	if updated.Status != entity.EnterpriseStatusInactive || updated.District != "Jakarta" || updated.DisporaSupport != "Grant 2025" {
+		t.Errorf("updated = %+v, want inactive, Jakarta, and Grant 2025", updated)
 	}
 	if updated.LegalStatus != entity.LegalStatusComplete ||
 		updated.BusinessDigitization != entity.BusinessDigitizationHigh ||
@@ -618,8 +747,8 @@ func TestUpdateEnterpriseAdminChangesAnyMutableField(t *testing.T) {
 func TestUpdateEnterpriseForwardsUnchangedValueToRepository(t *testing.T) {
 	repo := &fakeEnterpriseRepository{findResult: entity.Enterprise{
 		ID:              5,
-		PublicID:        "YTP-000005",
-		Name:            "Old",
+		PublicID:        "TPN-000005",
+		EnterpriseName:  "Old",
 		BusinessSector:  entity.BusinessSectorPerdaganganRitel,
 		InitialTurnover: "0.00",
 		CurrentTurnover: "0.00",
@@ -627,8 +756,8 @@ func TestUpdateEnterpriseForwardsUnchangedValueToRepository(t *testing.T) {
 	}}
 	uc := usecase.NewEnterpriseUseCase(repo)
 
-	result, err := uc.UpdateEnterprise(context.Background(), memberActor(), "YTP-000005", usecase.UpdateEnterpriseInput{
-		Name: stringPtr("Old"),
+	result, err := uc.UpdateEnterprise(context.Background(), memberActor(), "TPN-000005", usecase.UpdateEnterpriseInput{
+		EnterpriseName: stringPtr("Old"),
 	})
 	if err != nil {
 		t.Fatalf("UpdateEnterprise() error = %v", err)
@@ -638,19 +767,19 @@ func TestUpdateEnterpriseForwardsUnchangedValueToRepository(t *testing.T) {
 	if repo.updateCalls != 1 {
 		t.Errorf("update calls = %d, want 1", repo.updateCalls)
 	}
-	if repo.lastUpdate.Name == nil || *repo.lastUpdate.Name != "Old" {
-		t.Errorf("update patch name = %v, want Old", repo.lastUpdate.Name)
+	if repo.lastUpdate.EnterpriseName == nil || *repo.lastUpdate.EnterpriseName != "Old" {
+		t.Errorf("update patch enterprise_name = %v, want Old", repo.lastUpdate.EnterpriseName)
 	}
-	if result.Name != "Old" {
-		t.Errorf("name = %q, want Old", result.Name)
+	if result.EnterpriseName != "Old" {
+		t.Errorf("enterprise_name = %q, want Old", result.EnterpriseName)
 	}
 }
 
 func TestUpdateEnterpriseValidation(t *testing.T) {
-	repo := &fakeEnterpriseRepository{findResult: entity.Enterprise{ID: 5, PublicID: "YTP-000005", UserID: 7}}
+	repo := &fakeEnterpriseRepository{findResult: entity.Enterprise{ID: 5, PublicID: "TPN-000005", UserID: 7}}
 	uc := usecase.NewEnterpriseUseCase(repo)
 
-	_, err := uc.UpdateEnterprise(context.Background(), memberActor(), "YTP-000005", usecase.UpdateEnterpriseInput{
+	_, err := uc.UpdateEnterprise(context.Background(), memberActor(), "TPN-000005", usecase.UpdateEnterpriseInput{
 		BusinessSector: stringPtr("bogus"),
 	})
 	if !errors.Is(err, usecase.ErrBadRequest) {
@@ -662,17 +791,17 @@ func TestUpdateEnterpriseMapsNotFound(t *testing.T) {
 	repo := &fakeEnterpriseRepository{updateErr: repository.ErrEnterpriseNotFound}
 	uc := usecase.NewEnterpriseUseCase(repo)
 
-	_, err := uc.UpdateEnterprise(context.Background(), memberActor(), "YTP-000404", usecase.UpdateEnterpriseInput{})
+	_, err := uc.UpdateEnterprise(context.Background(), memberActor(), "TPN-000404", usecase.UpdateEnterpriseInput{})
 	if !errors.Is(err, usecase.ErrEnterpriseNotFound) {
 		t.Fatalf("UpdateEnterprise() error = %v, want ErrEnterpriseNotFound", err)
 	}
 }
 
 func TestDeleteEnterpriseRecordsAudit(t *testing.T) {
-	repo := &fakeEnterpriseRepository{findResult: entity.Enterprise{ID: 5, PublicID: "YTP-000005", UserID: 7}}
+	repo := &fakeEnterpriseRepository{findResult: entity.Enterprise{ID: 5, PublicID: "TPN-000005", UserID: 7}}
 	uc := usecase.NewEnterpriseUseCase(repo)
 
-	if err := uc.DeleteEnterprise(context.Background(), memberActor(), "YTP-000005"); err != nil {
+	if err := uc.DeleteEnterprise(context.Background(), memberActor(), "TPN-000005"); err != nil {
 		t.Fatalf("DeleteEnterprise() error = %v", err)
 	}
 	if repo.lastDeleteOwnerID != 7 {
@@ -687,7 +816,7 @@ func TestDeleteEnterpriseMapsNotFound(t *testing.T) {
 	repo := &fakeEnterpriseRepository{}
 	uc := usecase.NewEnterpriseUseCase(repo)
 
-	if err := uc.DeleteEnterprise(context.Background(), memberActor(), "YTP-000404"); !errors.Is(err, usecase.ErrEnterpriseNotFound) {
+	if err := uc.DeleteEnterprise(context.Background(), memberActor(), "TPN-000404"); !errors.Is(err, usecase.ErrEnterpriseNotFound) {
 		t.Fatalf("DeleteEnterprise() error = %v, want ErrEnterpriseNotFound", err)
 	}
 }

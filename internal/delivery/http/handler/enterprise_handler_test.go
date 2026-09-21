@@ -26,6 +26,10 @@ type fakeEnterpriseUseCase struct {
 	listErr       error
 	lastListInput usecase.FindEnterprisesInput
 
+	publicResult    usecase.FindPublicEnterprisesResult
+	publicErr       error
+	lastPublicInput usecase.FindPublicEnterprisesInput
+
 	getResult entity.Enterprise
 	getErr    error
 
@@ -56,6 +60,15 @@ func (f *fakeEnterpriseUseCase) FindEnterprises(
 	f.lastListInput = input
 
 	return f.listResult, f.listErr
+}
+
+func (f *fakeEnterpriseUseCase) FindPublicEnterprises(
+	_ context.Context,
+	input usecase.FindPublicEnterprisesInput,
+) (usecase.FindPublicEnterprisesResult, error) {
+	f.lastPublicInput = input
+
+	return f.publicResult, f.publicErr
 }
 
 func (f *fakeEnterpriseUseCase) UpdateEnterprise(
@@ -92,8 +105,8 @@ func enterpriseIdentity(actor entity.User) handler.IdentityFunc {
 
 func TestCreateEnterpriseReturnsCreatedWithNullDistrict(t *testing.T) {
 	uc := &fakeEnterpriseUseCase{createResult: entity.Enterprise{
-		PublicID:        "YTP-123456",
-		Name:            "Warung Kopi",
+		PublicID:        "TPN-123456",
+		EnterpriseName:  "Warung Kopi",
 		BusinessSector:  entity.BusinessSectorKuliner,
 		InitialTurnover: "1500.00",
 		CurrentTurnover: "0.00",
@@ -103,7 +116,7 @@ func TestCreateEnterpriseReturnsCreatedWithNullDistrict(t *testing.T) {
 	}}
 
 	rec := serve(t, newEnterpriseRouter(uc, enterpriseIdentity(entity.User{ID: 7, Role: entity.RoleMember})),
-		http.MethodPost, "/enterprises", `{"name":"Warung Kopi","business_sector":"Kuliner"}`)
+		http.MethodPost, "/enterprises", `{"enterprise_name":"Warung Kopi","business_sector":"Kuliner"}`)
 
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want %d (body %s)", rec.Code, http.StatusCreated, rec.Body.String())
@@ -113,8 +126,8 @@ func TestCreateEnterpriseReturnsCreatedWithNullDistrict(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode body: %v", err)
 	}
-	if body["public_id"] != "YTP-123456" {
-		t.Errorf("public_id = %v, want YTP-123456", body["public_id"])
+	if body["public_id"] != "TPN-123456" {
+		t.Errorf("public_id = %v, want TPN-123456", body["public_id"])
 	}
 	if district, ok := body["district"]; !ok || district != nil {
 		t.Errorf("district = %v (present %t), want JSON null", district, ok)
@@ -126,7 +139,7 @@ func TestCreateEnterpriseUsesAuthenticatedActor(t *testing.T) {
 	actor := entity.User{ID: 7, Role: entity.RoleMember}
 
 	rec := serve(t, newEnterpriseRouter(uc, enterpriseIdentity(actor)),
-		http.MethodPost, "/enterprises", `{"name":"Toko","business_sector":"Perdagangan Ritel"}`)
+		http.MethodPost, "/enterprises", `{"enterprise_name":"Toko","business_sector":"Perdagangan Ritel"}`)
 
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want %d (body %s)", rec.Code, http.StatusCreated, rec.Body.String())
@@ -140,7 +153,7 @@ func TestCreateEnterpriseRequiresIdentity(t *testing.T) {
 	identity := func(context.Context) (entity.User, bool) { return entity.User{}, false }
 
 	rec := serve(t, newEnterpriseRouter(&fakeEnterpriseUseCase{}, identity),
-		http.MethodPost, "/enterprises", `{"name":"Toko","business_sector":"Perdagangan Ritel"}`)
+		http.MethodPost, "/enterprises", `{"enterprise_name":"Toko","business_sector":"Perdagangan Ritel"}`)
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
@@ -149,12 +162,12 @@ func TestCreateEnterpriseRequiresIdentity(t *testing.T) {
 
 func TestListEnterprisesParsesFiltersAndReturnsNextCursor(t *testing.T) {
 	uc := &fakeEnterpriseUseCase{listResult: usecase.FindEnterprisesResult{
-		Enterprises: []entity.Enterprise{{ID: 11, PublicID: "YTP-000011"}},
+		Enterprises: []entity.Enterprise{{ID: 11, PublicID: "TPN-000011"}},
 		NextCursor:  11,
 	}}
 
 	rec := serve(t, newEnterpriseRouter(uc, enterpriseIdentity(entity.User{ID: 7, Role: entity.RoleMember})),
-		http.MethodGet, "/enterprises?district=Bandung&status=active&business_sector=Kuliner"+
+		http.MethodGet, "/enterprises?search=Kopi&district=Bandung&status=active&business_sector=Kuliner"+
 			"&legal_status=complete&business_digitization=high&intervention_needs=Pelatihan"+
 			"&training_status=completed&mentoring_status=ongoing&capital_access=yes&partnership=no"+
 			"&cursor=10&limit=2", "")
@@ -162,7 +175,7 @@ func TestListEnterprisesParsesFiltersAndReturnsNextCursor(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body %s)", rec.Code, http.StatusOK, rec.Body.String())
 	}
-	if uc.lastListInput.District != "Bandung" || uc.lastListInput.Status != "active" ||
+	if uc.lastListInput.Search != "Kopi" || uc.lastListInput.District != "Bandung" || uc.lastListInput.Status != "active" ||
 		uc.lastListInput.BusinessSector != "Kuliner" {
 		t.Errorf("filters = %+v, want parsed values", uc.lastListInput)
 	}
@@ -185,6 +198,49 @@ func TestListEnterprisesParsesFiltersAndReturnsNextCursor(t *testing.T) {
 	}
 }
 
+func TestListPublicEnterprisesParsesFiltersAndDoesNotRequireAuth(t *testing.T) {
+	uc := &fakeEnterpriseUseCase{publicResult: usecase.FindPublicEnterprisesResult{
+		Enterprises: []entity.PublicEnterprise{{
+			ID:                11,
+			PublicID:          "TPN-000011",
+			EnterpriseName:    "Kopi Mantap",
+			OwnerFullName:     "Budi",
+			BusinessSector:    entity.BusinessSectorKuliner,
+			District:          "Bandung",
+			InterventionNeeds: entity.InterventionNeedsPelatihan,
+		}},
+		NextCursor: 11,
+	}}
+
+	router := newEnterpriseRouter(uc, func(context.Context) (entity.User, bool) {
+		return entity.User{}, false // no auth identity
+	})
+
+	rec := serve(t, router, http.MethodGet,
+		"/enterprises/public?search=Kopi&district=Bandung&intervention_needs=Pelatihan&business_sector=Kuliner&cursor=10&limit=2",
+		"")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body %s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if uc.lastPublicInput.Search != "Kopi" || uc.lastPublicInput.District != "Bandung" ||
+		uc.lastPublicInput.InterventionNeeds != "Pelatihan" || uc.lastPublicInput.BusinessSector != "Kuliner" ||
+		uc.lastPublicInput.Cursor != 10 || uc.lastPublicInput.Limit != 2 {
+		t.Errorf("public filters = %+v, want parsed values", uc.lastPublicInput)
+	}
+
+	var body model.PublicEnterpriseListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if len(body.Enterprises) != 1 || body.Enterprises[0].PublicID != "TPN-000011" {
+		t.Errorf("enterprises = %+v, want 1 item with TPN-000011", body.Enterprises)
+	}
+	if body.NextCursor != "11" {
+		t.Errorf("next_cursor = %q, want 11", body.NextCursor)
+	}
+}
+
 func TestListEnterprisesRejectsMalformedPaging(t *testing.T) {
 	router := newEnterpriseRouter(&fakeEnterpriseUseCase{}, enterpriseIdentity(entity.User{ID: 7, Role: entity.RoleMember}))
 
@@ -198,13 +254,13 @@ func TestListEnterprisesRejectsMalformedPaging(t *testing.T) {
 
 func TestGetEnterpriseReturnsDistrict(t *testing.T) {
 	uc := &fakeEnterpriseUseCase{getResult: entity.Enterprise{
-		PublicID: "YTP-000011",
-		Name:     "Toko",
-		District: "Bandung",
+		PublicID:       "TPN-000011",
+		EnterpriseName: "Toko",
+		District:       "Bandung",
 	}}
 
 	rec := serve(t, newEnterpriseRouter(uc, enterpriseIdentity(entity.User{ID: 7, Role: entity.RoleMember})),
-		http.MethodGet, "/enterprises/YTP-000011", "")
+		http.MethodGet, "/enterprises/TPN-000011", "")
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
@@ -223,7 +279,7 @@ func TestGetEnterpriseNotFoundMaps404(t *testing.T) {
 	uc := &fakeEnterpriseUseCase{getErr: usecase.ErrEnterpriseNotFound}
 
 	rec := serve(t, newEnterpriseRouter(uc, enterpriseIdentity(entity.User{ID: 7, Role: entity.RoleMember})),
-		http.MethodGet, "/enterprises/YTP-000404", "")
+		http.MethodGet, "/enterprises/TPN-000404", "")
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
@@ -234,7 +290,7 @@ func TestUpdateEnterpriseForbiddenMaps403(t *testing.T) {
 	uc := &fakeEnterpriseUseCase{updateErr: usecase.ErrForbidden}
 
 	rec := serve(t, newEnterpriseRouter(uc, enterpriseIdentity(entity.User{ID: 7, Role: entity.RoleMember})),
-		http.MethodPatch, "/enterprises/YTP-000011", `{"status":"inactive"}`)
+		http.MethodPatch, "/enterprises/TPN-000011", `{"status":"inactive"}`)
 
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want %d (body %s)", rec.Code, http.StatusForbidden, rec.Body.String())
@@ -245,7 +301,7 @@ func TestUpdateEnterpriseBadRequestMaps400(t *testing.T) {
 	uc := &fakeEnterpriseUseCase{updateErr: usecase.BadRequestError{Message: "invalid business_sector"}}
 
 	rec := serve(t, newEnterpriseRouter(uc, enterpriseIdentity(entity.User{ID: 7, Role: entity.RoleMember})),
-		http.MethodPatch, "/enterprises/YTP-000011", `{"business_sector":"bogus"}`)
+		http.MethodPatch, "/enterprises/TPN-000011", `{"business_sector":"bogus"}`)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
@@ -262,7 +318,7 @@ func TestUpdateEnterpriseBadRequestMaps400(t *testing.T) {
 
 func TestDeleteEnterpriseReturnsNoContent(t *testing.T) {
 	rec := serve(t, newEnterpriseRouter(&fakeEnterpriseUseCase{}, enterpriseIdentity(entity.User{ID: 7, Role: entity.RoleMember})),
-		http.MethodDelete, "/enterprises/YTP-000011", "")
+		http.MethodDelete, "/enterprises/TPN-000011", "")
 
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
