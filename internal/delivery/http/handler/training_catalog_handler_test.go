@@ -27,7 +27,7 @@ type fakeUploadService struct {
 	err       error
 }
 
-func (f fakeUploadService) SaveThumbnail(_ io.Reader, _ string, _ int64) (string, error) {
+func (f fakeUploadService) SaveThumbnail(_ io.Reader, _ int64) (string, error) {
 	return f.resultURL, f.err
 }
 

@@ -402,6 +402,22 @@ func TestUpdateTrainingCatalogRejectsEndDateBeforeStartDate(t *testing.T) {
 	}
 }
 
+func TestUpdateTrainingCatalogMapsRepositoryInvalidDateRange(t *testing.T) {
+	repo := &fakeTrainingCatalogRepository{updateErr: repository.ErrInvalidTrainingCatalogDateRange}
+	uc := usecase.NewTrainingCatalogUseCase(repo)
+
+	endDate := "2026-11-01"
+	_, err := uc.UpdateTrainingCatalog(context.Background(), adminActor(), "YTP-000004", usecase.UpdateTrainingCatalogInput{
+		EndDate: &endDate,
+	})
+	if !errors.Is(err, usecase.ErrBadRequest) {
+		t.Fatalf("UpdateTrainingCatalog() error = %v, want ErrBadRequest", err)
+	}
+	if !strings.Contains(err.Error(), "end_date must be on or after start_date") {
+		t.Errorf("error message = %q, want it to contain 'end_date must be on or after start_date'", err.Error())
+	}
+}
+
 func TestUpdateTrainingCatalogRejectsEmptyUpdate(t *testing.T) {
 	repo := &fakeTrainingCatalogRepository{}
 	uc := usecase.NewTrainingCatalogUseCase(repo)

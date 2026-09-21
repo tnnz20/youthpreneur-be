@@ -35,7 +35,7 @@ func TestUploadServiceSaveThumbnailPNG(t *testing.T) {
 	tempDir := t.TempDir()
 	svc := NewUploadService(tempDir)
 
-	urlPath, err := svc.SaveThumbnail(bytes.NewReader(samplePNG), "test.png", int64(len(samplePNG)))
+	urlPath, err := svc.SaveThumbnail(bytes.NewReader(samplePNG), int64(len(samplePNG)))
 	if err != nil {
 		t.Fatalf("unexpected error = %v", err)
 	}
@@ -59,7 +59,7 @@ func TestUploadServiceSaveThumbnailJPEG(t *testing.T) {
 	tempDir := t.TempDir()
 	svc := NewUploadService(tempDir)
 
-	urlPath, err := svc.SaveThumbnail(bytes.NewReader(sampleJPEG), "photo.jpg", int64(len(sampleJPEG)))
+	urlPath, err := svc.SaveThumbnail(bytes.NewReader(sampleJPEG), int64(len(sampleJPEG)))
 	if err != nil {
 		t.Fatalf("unexpected error = %v", err)
 	}
@@ -74,7 +74,7 @@ func TestUploadServiceRejectsUnsupportedType(t *testing.T) {
 	svc := NewUploadService(tempDir)
 
 	pdf := []byte("%PDF-1.4 header text")
-	_, err := svc.SaveThumbnail(bytes.NewReader(pdf), "doc.pdf", int64(len(pdf)))
+	_, err := svc.SaveThumbnail(bytes.NewReader(pdf), int64(len(pdf)))
 	if !errors.Is(err, ErrInvalidFileType) {
 		t.Errorf("got error %v, want ErrInvalidFileType", err)
 	}
@@ -84,8 +84,53 @@ func TestUploadServiceRejectsOversizedFile(t *testing.T) {
 	tempDir := t.TempDir()
 	svc := NewUploadService(tempDir)
 
-	_, err := svc.SaveThumbnail(bytes.NewReader([]byte("")), "big.png", MaxThumbnailSize+1)
+	_, err := svc.SaveThumbnail(bytes.NewReader([]byte("")), MaxThumbnailSize+1)
 	if !errors.Is(err, ErrFileTooLarge) {
 		t.Errorf("got error %v, want ErrFileTooLarge", err)
+	}
+}
+
+type errReaderAfter struct {
+	head []byte
+	read int
+	err  error
+}
+
+func (r *errReaderAfter) Read(p []byte) (int, error) {
+	if r.read < len(r.head) {
+		n := copy(p, r.head[r.read:])
+		r.read += n
+		return n, nil
+	}
+	return 0, r.err
+}
+
+func TestUploadServiceCleansUpFileOnCopyFailure(t *testing.T) {
+	tempDir := t.TempDir()
+	svc := NewUploadService(tempDir)
+
+	// Provide valid PNG bytes that exceed 512 bytes so sniff succeeds, then reader fails
+	validPrefix := make([]byte, 512)
+	copy(validPrefix, samplePNG)
+
+	expectedErr := errors.New("simulated read error")
+	faultyReader := &errReaderAfter{
+		head: validPrefix,
+		err:  expectedErr,
+	}
+
+	_, err := svc.SaveThumbnail(faultyReader, int64(len(validPrefix)+100))
+	if !errors.Is(err, expectedErr) {
+		t.Fatalf("expected error %v, got %v", expectedErr, err)
+	}
+
+	// Verify thumbnails directory does not contain leftover partial files
+	thumbDir := filepath.Join(tempDir, "thumbnails")
+	entries, err := os.ReadDir(thumbDir)
+	if err != nil {
+		t.Fatalf("read thumbDir failed: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("expected 0 files after cleanup, found %d", len(entries))
 	}
 }

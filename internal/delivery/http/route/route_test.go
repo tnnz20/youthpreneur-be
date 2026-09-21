@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/tnnz20/youthpreneur-be/internal/delivery/http/handler"
@@ -71,5 +73,50 @@ func TestAuthMeRouteRegistered(t *testing.T) {
 	}
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d without an authenticated identity", rec.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestUploadsRouteNoDirectoryBrowsing(t *testing.T) {
+	tempDir := t.TempDir()
+	thumbDir := filepath.Join(tempDir, "thumbnails")
+	if err := os.MkdirAll(thumbDir, 0o755); err != nil {
+		t.Fatalf("mkdir thumbnails: %v", err)
+	}
+
+	testFile := filepath.Join(thumbDir, "test.png")
+	if err := os.WriteFile(testFile, []byte("fake image data"), 0o644); err != nil {
+		t.Fatalf("write test file: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	route.NewRouter(route.Dependencies{
+		UploadDir: tempDir,
+	}).Register(mux)
+
+	// 1. Root directory listing should be rejected (404)
+	req := httptest.NewRequest(http.MethodGet, "/uploads/", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("GET /uploads/ status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+
+	// 2. Subdirectory listing should be rejected (404)
+	req = httptest.NewRequest(http.MethodGet, "/uploads/thumbnails/", nil)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("GET /uploads/thumbnails/ status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+
+	// 3. Regular file should be served (200)
+	req = httptest.NewRequest(http.MethodGet, "/uploads/thumbnails/test.png", nil)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("GET /uploads/thumbnails/test.png status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if body := rec.Body.String(); body != "fake image data" {
+		t.Errorf("body = %q, want %q", body, "fake image data")
 	}
 }

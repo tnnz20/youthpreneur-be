@@ -162,6 +162,9 @@ func (r trainingCatalogRepository) UpdateTrainingCatalog(
 	}
 
 	merged := applyTrainingCatalogUpdate(locked, update)
+	if merged.StartDate != nil && merged.EndDate != nil && merged.EndDate.Before(*merged.StartDate) {
+		return entity.TrainingCatalog{}, repository.ErrInvalidTrainingCatalogDateRange
+	}
 
 	updated, err := scanTrainingCatalog(tx.QueryRowContext(ctx, `
 		UPDATE training_catalog c

@@ -28,6 +28,8 @@ ALTER TABLE training_catalog ADD COLUMN end_date DATE;
 ALTER TABLE training_catalog ADD COLUMN registered_count INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE training_catalog ADD CONSTRAINT training_catalog_registered_count_non_negative
     CHECK (registered_count >= 0);
+ALTER TABLE training_catalog ADD CONSTRAINT training_catalog_date_range
+    CHECK (start_date IS NULL OR end_date IS NULL OR end_date >= start_date);
 
 -- Migrate existing training_date to start_date
 UPDATE training_catalog SET start_date = training_date WHERE start_date IS NULL AND training_date IS NOT NULL;

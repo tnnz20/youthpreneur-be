@@ -510,9 +510,12 @@ func parseTrainingDate(field, value string) (*time.Time, error) {
 }
 
 func mapTrainingCatalogRepositoryError(err error) error {
-	if errors.Is(err, repository.ErrTrainingCatalogNotFound) {
+	switch {
+	case errors.Is(err, repository.ErrTrainingCatalogNotFound):
 		return ErrTrainingCatalogNotFound
+	case errors.Is(err, repository.ErrInvalidTrainingCatalogDateRange):
+		return badRequest("end_date must be on or after start_date")
+	default:
+		return err
 	}
-
-	return err
 }

@@ -19,6 +19,7 @@ ALTER TABLE training_catalog DROP COLUMN IF EXISTS end_date;
 ALTER TABLE training_catalog DROP COLUMN IF EXISTS start_date;
 
 -- Revert new columns and renames
+ALTER TABLE training_catalog DROP CONSTRAINT IF EXISTS training_catalog_date_range;
 ALTER TABLE training_catalog DROP CONSTRAINT IF EXISTS training_catalog_registered_count_non_negative;
 ALTER TABLE training_catalog DROP COLUMN IF EXISTS registered_count;
 ALTER TABLE training_catalog DROP COLUMN IF EXISTS thumbnail;

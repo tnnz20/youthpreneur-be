@@ -204,7 +204,7 @@ func (h *TrainingCatalogHandler) UploadThumbnail(w http.ResponseWriter, r *http.
 	}
 	defer file.Close()
 
-	url, err := h.uploadService.SaveThumbnail(file, header.Filename, header.Size)
+	url, err := h.uploadService.SaveThumbnail(file, header.Size)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvalidFileType):

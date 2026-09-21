@@ -26,7 +26,7 @@ var (
 
 // UploadService manages saving and validating uploaded assets.
 type UploadService interface {
-	SaveThumbnail(reader io.Reader, originalFilename string, size int64) (string, error)
+	SaveThumbnail(reader io.Reader, size int64) (string, error)
 }
 
 type uploadService struct {
@@ -38,7 +38,7 @@ func NewUploadService(baseDir string) UploadService {
 	return &uploadService{baseDir: baseDir}
 }
 
-func (s *uploadService) SaveThumbnail(reader io.Reader, originalFilename string, size int64) (string, error) {
+func (s *uploadService) SaveThumbnail(reader io.Reader, size int64) (string, error) {
 	if size > MaxThumbnailSize {
 		return "", ErrFileTooLarge
 	}
@@ -80,17 +80,24 @@ func (s *uploadService) SaveThumbnail(reader io.Reader, originalFilename string,
 	}
 	defer func() { _ = out.Close() }()
 
+	cleanup := func() {
+		_ = out.Close()
+		_ = os.Remove(destPath)
+	}
+
 	if _, err := out.Write(buffer[:n]); err != nil {
+		cleanup()
 		return "", fmt.Errorf("write file header: %w", err)
 	}
 
 	limitedReader := io.LimitReader(reader, MaxThumbnailSize-int64(n)+1)
 	written, err := io.Copy(out, limitedReader)
 	if err != nil {
+		cleanup()
 		return "", fmt.Errorf("write file body: %w", err)
 	}
 	if int64(n)+written > MaxThumbnailSize {
-		_ = os.Remove(destPath)
+		cleanup()
 		return "", ErrFileTooLarge
 	}
 
