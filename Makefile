@@ -13,7 +13,7 @@ help:
 	@echo "  fmt              Format Go sources"
 	@echo "  build            Build bin/web"
 	@echo "  seed             Seed the initial admin from SEEDER_ADMIN_*"
-	@echo "  seed-catalog     Seed training catalogs from db/seeds/training_catalogs.csv"
+	@echo "  seed-catalog     Seed training catalogs: make seed-catalog [file=path/to.csv]"
 	@echo ""
 	@echo "Migration commands:"
 	@echo "  migrate-up       Apply database migrations"
@@ -45,7 +45,7 @@ seed:
 	go run ./cmd/seeder
 
 seed-catalog:
-	go run ./cmd/seed-catalog
+	go run ./cmd/seed-catalog $(if $(file),-file $(file))
 
 migrate-up:
 	go run ./cmd/migrate up
