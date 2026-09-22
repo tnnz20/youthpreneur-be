@@ -1069,10 +1069,11 @@ List active catalog entries with optional filters and cursor pagination.
 | `category` | string | No | `training_category_enum` filter (`Wirausaha & Agribisnis`, `Kriya & Kreativitas`, `Digital & IPTEK`, `Olahraga & Prestasi`, `Komunitas & Pemuda`) |
 | `training_status` | string | No | `planned`, `ongoing`, or `completed` |
 | `start_date` | string | No | `YYYY-MM-DD` exact start date filter |
+| `order` | string | No | Sort direction: `asc` (oldest first, default) or `desc` (newest first) |
 
 `pic_phone`, `address`, `thumbnail`, `end_date`, link, slots, IDs, and timestamps are not
-filterable. `next_cursor` is omitted when no next page exists; clients must pass
-the returned value and must not construct cursors.
+filterable. `cursor` filters `c.id > cursor` when `order=asc` and `c.id < cursor` when `order=desc`.
+`next_cursor` is omitted when no next page exists; clients must pass the returned value and must not construct cursors.
 
 **Response:**
 

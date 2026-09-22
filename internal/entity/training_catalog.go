@@ -83,6 +83,7 @@ type TrainingCatalogFilter struct {
 	StartDate      *time.Time
 	Cursor         int
 	Limit          int
+	Order          string
 }
 
 // IsOpenForEnrollment reports whether a catalog accepts new enrollments. A

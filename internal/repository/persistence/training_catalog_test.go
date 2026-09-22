@@ -188,13 +188,28 @@ func TestTrainingCatalogRepositoryIntegration(t *testing.T) {
 		Category:       entity.TrainingCategoryDigitalIPTEK,
 		TrainingStatus: entity.ProcessStatusPlanned,
 		StartDate:      &trainingDate,
+		Order:          "asc",
 		Limit:          10,
 	})
 	if err != nil {
-		t.Fatalf("FindTrainingCatalogs() error = %v", err)
+		t.Fatalf("FindTrainingCatalogs(asc) error = %v", err)
 	}
 	if len(list) != 1 || list[0].PublicID != publicID {
-		t.Fatalf("FindTrainingCatalogs() = %+v, want only the matching catalog", list)
+		t.Fatalf("FindTrainingCatalogs(asc) = %+v, want only the matching catalog", list)
+	}
+
+	listDesc, err := repo.FindTrainingCatalogs(ctx, entity.TrainingCatalogFilter{
+		Category:       entity.TrainingCategoryDigitalIPTEK,
+		TrainingStatus: entity.ProcessStatusPlanned,
+		StartDate:      &trainingDate,
+		Order:          "desc",
+		Limit:          10,
+	})
+	if err != nil {
+		t.Fatalf("FindTrainingCatalogs(desc) error = %v", err)
+	}
+	if len(listDesc) != 1 || listDesc[0].PublicID != publicID {
+		t.Fatalf("FindTrainingCatalogs(desc) = %+v, want only the matching catalog", listDesc)
 	}
 
 	newTitle := "Bisnis Digital Lanjutan"

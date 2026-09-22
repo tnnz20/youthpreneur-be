@@ -135,13 +135,13 @@ func TestListTrainingCatalogsIsPublic(t *testing.T) {
 	identity := func(context.Context) (entity.User, bool) { return entity.User{}, false }
 
 	rec := serve(t, newTrainingCatalogRouter(uc, identity, nil),
-		http.MethodGet, "/training-catalog?category=Wirausaha%20%26%20Agribisnis&training_status=planned&start_date=2026-10-01&cursor=3&limit=5", "")
+		http.MethodGet, "/training-catalog?category=Wirausaha%20%26%20Agribisnis&training_status=planned&start_date=2026-10-01&order=desc&cursor=3&limit=5", "")
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body %s)", rec.Code, http.StatusOK, rec.Body.String())
 	}
 	if uc.lastListInput.Category != "Wirausaha & Agribisnis" || uc.lastListInput.TrainingStatus != "planned" ||
-		uc.lastListInput.StartDate != "2026-10-01" || uc.lastListInput.Cursor != 3 || uc.lastListInput.Limit != 5 {
+		uc.lastListInput.StartDate != "2026-10-01" || uc.lastListInput.Order != "desc" || uc.lastListInput.Cursor != 3 || uc.lastListInput.Limit != 5 {
 		t.Errorf("list input = %+v, want parsed filters", uc.lastListInput)
 	}
 

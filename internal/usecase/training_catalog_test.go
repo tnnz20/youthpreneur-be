@@ -285,6 +285,19 @@ func TestFindTrainingCatalogsPassesValidatedFilters(t *testing.T) {
 	if repo.lastFilter.StartDate == nil || repo.lastFilter.StartDate.Format("2006-01-02") != "2026-10-01" {
 		t.Errorf("start date filter = %v, want 2026-10-01", repo.lastFilter.StartDate)
 	}
+	if repo.lastFilter.Order != "asc" {
+		t.Errorf("order filter = %q, want default asc", repo.lastFilter.Order)
+	}
+
+	_, err = uc.FindTrainingCatalogs(context.Background(), usecase.FindTrainingCatalogsInput{
+		Order: "DESC",
+	})
+	if err != nil {
+		t.Fatalf("FindTrainingCatalogs(Order: DESC) error = %v", err)
+	}
+	if repo.lastFilter.Order != "desc" {
+		t.Errorf("order filter = %q, want desc", repo.lastFilter.Order)
+	}
 }
 
 func TestFindTrainingCatalogsRejectsInvalidFilters(t *testing.T) {
@@ -292,6 +305,7 @@ func TestFindTrainingCatalogsRejectsInvalidFilters(t *testing.T) {
 		{Category: "bogus"},
 		{TrainingStatus: "bogus"},
 		{StartDate: "bogus"},
+		{Order: "invalid"},
 	}
 
 	for _, input := range cases {

@@ -64,6 +64,7 @@ func (h *TrainingCatalogHandler) List(w http.ResponseWriter, r *http.Request) {
 		Category:       query.Get("category"),
 		TrainingStatus: query.Get("training_status"),
 		StartDate:      query.Get("start_date"),
+		Order:          query.Get("order"),
 		Cursor:         cursor,
 		Limit:          limit,
 	})

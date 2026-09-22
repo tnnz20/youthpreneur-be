@@ -18,8 +18,8 @@ const trainingCatalogColumns = `
 	c.max_slots, c.training_status, c.link, c.address, c.thumbnail, c.start_date,
 	c.end_date, c.mentor, c.created_at, c.updated_at, c.deleted_at, c.registered_count`
 
-// findTrainingCatalogsQuery applies optional filters.
-const findTrainingCatalogsQuery = `
+// findTrainingCatalogsAscQuery applies optional filters with ascending order (oldest first).
+const findTrainingCatalogsAscQuery = `
 	SELECT ` + trainingCatalogColumns + `
 	FROM training_catalog c
 	WHERE c.deleted_at IS NULL
@@ -31,6 +31,21 @@ const findTrainingCatalogsQuery = `
 	  AND ($6::date IS NULL OR c.start_date = $6::date)
 	  AND ($7::int = 0 OR c.id > $7)
 	ORDER BY c.id ASC
+	LIMIT $8`
+
+// findTrainingCatalogsDescQuery applies optional filters with descending order (newest first).
+const findTrainingCatalogsDescQuery = `
+	SELECT ` + trainingCatalogColumns + `
+	FROM training_catalog c
+	WHERE c.deleted_at IS NULL
+	  AND ($1 = '' OR (COALESCE(c.title, '') ILIKE '%' || $1 || '%' OR COALESCE(c.mentor, '') ILIKE '%' || $1 || '%'))
+	  AND ($2 = '' OR COALESCE(c.title, '') ILIKE '%' || $2 || '%')
+	  AND ($3 = '' OR COALESCE(c.mentor, '') ILIKE '%' || $3 || '%')
+	  AND ($4 = '' OR c.category = NULLIF($4, '')::training_category_enum)
+	  AND ($5 = '' OR c.training_status = NULLIF($5, '')::process_status_enum)
+	  AND ($6::date IS NULL OR c.start_date = $6::date)
+	  AND ($7::int = 0 OR c.id < $7)
+	ORDER BY c.id DESC
 	LIMIT $8`
 
 type trainingCatalogRepository struct {
@@ -105,7 +120,12 @@ func (r trainingCatalogRepository) FindTrainingCatalogs(
 	ctx context.Context,
 	filter entity.TrainingCatalogFilter,
 ) ([]entity.TrainingCatalog, error) {
-	rows, err := r.db.QueryContext(ctx, findTrainingCatalogsQuery,
+	query := findTrainingCatalogsAscQuery
+	if strings.EqualFold(filter.Order, "desc") {
+		query = findTrainingCatalogsDescQuery
+	}
+
+	rows, err := r.db.QueryContext(ctx, query,
 		filter.Search,
 		filter.Title,
 		filter.Mentor,

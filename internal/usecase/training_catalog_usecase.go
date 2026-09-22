@@ -72,6 +72,7 @@ type FindTrainingCatalogsInput struct {
 	Category       string
 	TrainingStatus string
 	StartDate      string
+	Order          string
 	Cursor         int
 	Limit          int
 }
@@ -200,6 +201,13 @@ func (u trainingCatalogUsecase) FindTrainingCatalogs(
 		return FindTrainingCatalogsResult{}, err
 	}
 
+	order := strings.ToLower(strings.TrimSpace(input.Order))
+	if order == "" {
+		order = "asc"
+	} else if order != "asc" && order != "desc" {
+		return FindTrainingCatalogsResult{}, badRequest("invalid order, must be 'asc' or 'desc'")
+	}
+
 	limit := clampLimit(input.Limit)
 	catalogs, err := u.repo.FindTrainingCatalogs(ctx, entity.TrainingCatalogFilter{
 		Search:         strings.TrimSpace(input.Search),
@@ -208,6 +216,7 @@ func (u trainingCatalogUsecase) FindTrainingCatalogs(
 		Category:       category,
 		TrainingStatus: status,
 		StartDate:      date,
+		Order:          order,
 		Cursor:         input.Cursor,
 		Limit:          limit + 1,
 	})
