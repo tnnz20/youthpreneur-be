@@ -11,7 +11,7 @@
 
 ## Structure
 
-- `cmd/web` starts HTTP server; `cmd/migrate` runs embedded PostgreSQL migrations.
+- `cmd/web` starts HTTP server; `cmd/migrate` runs embedded PostgreSQL migrations; `cmd/seeder` seeds admin user; `cmd/seed-catalog` seeds training catalog from CSV.
 - `internal/config/bootstrap.go` is composition root: opens and pings PostgreSQL, then wires repository → usecase → handler → routes.
 - HTTP flow is `internal/delivery/http/route` → `handler` → `usecase` → `repository`; PostgreSQL implementation lives in `internal/repository/persistence`.
 - Request and response DTOs and entity-to-response converters (`To...Response`, `To...Responses`) live in `internal/model`; HTTP handlers do not define local response converters.
