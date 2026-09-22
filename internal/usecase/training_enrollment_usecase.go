@@ -42,6 +42,7 @@ type CreateTrainingEnrollmentInput struct {
 // FindTrainingEnrollmentsInput bounds an enrollment history request.
 type FindTrainingEnrollmentsInput struct {
 	Actor  entity.User
+	Search string
 	Status string
 	Cursor int
 	Limit  int
@@ -52,6 +53,7 @@ type FindTrainingEnrollmentsInput struct {
 type FindCatalogEnrollmentsInput struct {
 	Actor           entity.User
 	CatalogPublicID string
+	Search          string
 	Status          string
 	Cursor          int
 	Limit           int
@@ -233,6 +235,7 @@ func (u trainingEnrollmentUsecase) FindMyEnrollments(
 
 	return u.findEnrollments(ctx, entity.TrainingEnrollmentFilter{
 		UserID: input.Actor.ID,
+		Search: strings.TrimSpace(input.Search),
 		Status: status,
 		Cursor: input.Cursor,
 		Limit:  input.Limit,
@@ -254,6 +257,7 @@ func (u trainingEnrollmentUsecase) FindAllEnrollments(
 	}
 
 	return u.findEnrollments(ctx, entity.TrainingEnrollmentFilter{
+		Search: strings.TrimSpace(input.Search),
 		Status: status,
 		Cursor: input.Cursor,
 		Limit:  input.Limit,
@@ -281,6 +285,7 @@ func (u trainingEnrollmentUsecase) FindCatalogEnrollments(
 
 	return u.findEnrollments(ctx, entity.TrainingEnrollmentFilter{
 		CatalogID: catalog.ID,
+		Search:    strings.TrimSpace(input.Search),
 		Status:    status,
 		Cursor:    input.Cursor,
 		Limit:     input.Limit,

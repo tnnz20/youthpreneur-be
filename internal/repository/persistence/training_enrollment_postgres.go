@@ -14,7 +14,7 @@ import (
 )
 
 const trainingEnrollmentColumns = `
-	e.id, e.public_id, e.user_id, u.public_id, e.training_catalog_id,
+	e.id, e.public_id, e.user_id, u.public_id, COALESCE(p.full_name, ''), e.training_catalog_id,
 	e.register_date, e.status, e.created_at, e.updated_at, e.deleted_at`
 
 // findTrainingEnrollmentsQuery joins the catalog and enrolling user so history
@@ -25,12 +25,14 @@ const findTrainingEnrollmentsQuery = `
 	FROM training_enrollments e
 	JOIN training_catalog c ON c.id = e.training_catalog_id
 	JOIN users u ON u.id = e.user_id
+	LEFT JOIN user_profiles p ON p.user_id = u.id
 	WHERE ($1::int = 0 OR e.user_id = $1)
 	  AND ($2::int = 0 OR e.training_catalog_id = $2)
 	  AND ($3 = '' OR e.status = NULLIF($3, '')::training_enrollment_status_enum)
-	  AND ($4::int = 0 OR e.id > $4)
+	  AND ($4 = '' OR p.full_name ILIKE '%' || $4 || '%')
+	  AND ($5::int = 0 OR e.id > $5)
 	ORDER BY e.id ASC
-	LIMIT $5`
+	LIMIT $6`
 
 type trainingEnrollmentRepository struct {
 	db *sql.DB
@@ -130,6 +132,7 @@ func (r trainingEnrollmentRepository) CreateTrainingEnrollment(
 		FROM training_enrollments e
 		JOIN training_catalog c ON c.id = e.training_catalog_id
 		JOIN users u ON u.id = e.user_id
+		LEFT JOIN user_profiles p ON p.user_id = u.id
 		WHERE e.id = $1`,
 		id,
 	).Scan)
@@ -223,6 +226,7 @@ func (r trainingEnrollmentRepository) UpdateTrainingEnrollmentStatus(
 		FROM training_enrollments e
 		JOIN training_catalog c ON c.id = e.training_catalog_id
 		JOIN users u ON u.id = e.user_id
+		LEFT JOIN user_profiles p ON p.user_id = u.id
 		WHERE e.id = $1`,
 		enrollmentID,
 	).Scan)
@@ -297,6 +301,7 @@ func (r trainingEnrollmentRepository) FindTrainingEnrollments(
 		filter.UserID,
 		filter.CatalogID,
 		string(filter.Status),
+		strings.TrimSpace(filter.Search),
 		filter.Cursor,
 		filter.Limit,
 	)
@@ -335,6 +340,7 @@ func scanTrainingEnrollmentJoined(scan func(dest ...any) error) (entity.Training
 		&enrollment.PublicID,
 		&enrollment.UserID,
 		&enrollment.UserPublicID,
+		&enrollment.FullName,
 		&enrollment.TrainingCatalogID,
 		&registerDay,
 		&status,

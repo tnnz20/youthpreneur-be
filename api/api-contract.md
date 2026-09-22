@@ -1286,6 +1286,7 @@ soft deleted.
 {
   "public_id": "ENR-482920",
   "user_public_id": "YTP-000007",
+  "full_name": "Budi Pratama",
   "register_date": "2026-09-17",
   "status": "pending",
   "created_at": 1700000000,
@@ -1293,9 +1294,6 @@ soft deleted.
   "catalog": {
     "public_id": "TCY-482910",
     "title": "Bisnis Digital",
-    "category": "Wirausaha & Agribisnis",
-    "max_slots": 30,
-    "registered_count": 5,
     "training_status": "planned"
   }
 }
@@ -1368,7 +1366,7 @@ List the current user's enrollment history, including cancelled enrollments.
 
 **Authentication:** Authenticated.
 
-**Query Parameters:** `cursor` and `limit` as described for catalog listing, and optional `status` (`pending`, `accepted`, `rejected`).
+**Query Parameters:** `cursor` and `limit` as described for catalog listing, optional `search`/`q` to filter by participant full name, and optional `status` (`pending`, `accepted`, `rejected`).
 
 **Response:**
 
@@ -1378,6 +1376,7 @@ List the current user's enrollment history, including cancelled enrollments.
     {
       "public_id": "ENR-482920",
       "user_public_id": "YTP-000007",
+      "full_name": "Budi Pratama",
       "register_date": "2026-09-17",
       "status": "accepted",
       "created_at": 1700000000,
@@ -1407,7 +1406,7 @@ List every user's enrollment history, including cancelled enrollments.
 
 **Authentication:** Admin.
 
-**Query Parameters:** `cursor` and `limit` as described for catalog listing, and optional `status` (`pending`, `accepted`, `rejected`).
+**Query Parameters:** `cursor` and `limit` as described for catalog listing, optional `search`/`q` to filter by participant full name, and optional `status` (`pending`, `accepted`, `rejected`).
 
 **Response:** The enrollment page shown for `/training-enrollments/my`.
 
@@ -1426,7 +1425,7 @@ List one catalog's enrollment history, including cancelled enrollments.
 
 **Authentication:** Admin.
 
-**Query Parameters:** `cursor` and `limit` as described for catalog listing, and optional `status` (`pending`, `accepted`, `rejected`).
+**Query Parameters:** `cursor` and `limit` as described for catalog listing, optional `search`/`q` to filter by participant full name, and optional `status` (`pending`, `accepted`, `rejected`).
 
 **Response:** The enrollment page shown for `/training-enrollments/my`.
 

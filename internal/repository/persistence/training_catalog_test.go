@@ -104,16 +104,17 @@ func TestTrainingCatalogScanSharedAcrossJoinedEnrollment(t *testing.T) {
 
 	joined, err := scanTrainingEnrollmentJoined(func(dest ...any) error {
 		*(dest[0].(*int)) = 7
-		*(dest[1].(*string)) = "YTP-000007"
+		*(dest[1].(*string)) = "ENR-000007"
 		*(dest[2].(*int)) = 9
 		*(dest[3].(*string)) = "YTP-000009"
-		*(dest[4].(*int)) = 3
-		*(dest[5].(*sql.NullTime)) = sql.NullTime{Time: trainingDay, Valid: true}
-		*(dest[6].(*string)) = "pending"
-		*(dest[7].(*int64)) = 400
+		*(dest[4].(*string)) = "Budi Pratama"
+		*(dest[5].(*int)) = 3
+		*(dest[6].(*sql.NullTime)) = sql.NullTime{Time: trainingDay, Valid: true}
+		*(dest[7].(*string)) = "pending"
 		*(dest[8].(*int64)) = 400
-		*(dest[9].(*sql.NullInt64)) = sql.NullInt64{}
-		fillCatalog(dest[10:])
+		*(dest[9].(*int64)) = 400
+		*(dest[10].(*sql.NullInt64)) = sql.NullInt64{}
+		fillCatalog(dest[11:])
 
 		return nil
 	})

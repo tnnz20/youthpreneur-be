@@ -147,10 +147,17 @@ func (h *TrainingEnrollmentHandler) ListByCatalog(w http.ResponseWriter, r *http
 		return
 	}
 
+	query := r.URL.Query()
+	search := query.Get("search")
+	if search == "" {
+		search = query.Get("q")
+	}
+
 	result, err := h.useCase.FindCatalogEnrollments(r.Context(), usecase.FindCatalogEnrollmentsInput{
 		Actor:           actor,
 		CatalogPublicID: r.PathValue("catalogPublicID"),
-		Status:          r.URL.Query().Get("status"),
+		Search:          search,
+		Status:          query.Get("status"),
 		Cursor:          cursor,
 		Limit:           limit,
 	})
@@ -172,9 +179,16 @@ func (h *TrainingEnrollmentHandler) listInput(
 		return usecase.FindTrainingEnrollmentsInput{}, false
 	}
 
+	query := r.URL.Query()
+	search := query.Get("search")
+	if search == "" {
+		search = query.Get("q")
+	}
+
 	return usecase.FindTrainingEnrollmentsInput{
 		Actor:  actor,
-		Status: r.URL.Query().Get("status"),
+		Search: search,
+		Status: query.Get("status"),
 		Cursor: cursor,
 		Limit:  limit,
 	}, true

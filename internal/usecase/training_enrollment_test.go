@@ -299,35 +299,45 @@ func TestFindAllEnrollmentsRequiresAdmin(t *testing.T) {
 		t.Fatalf("member FindAllEnrollments() error = %v, want ErrForbidden", err)
 	}
 
-	if _, err := uc.FindAllEnrollments(context.Background(), usecase.FindTrainingEnrollmentsInput{Actor: adminActor()}); err != nil {
+	if _, err := uc.FindAllEnrollments(context.Background(), usecase.FindTrainingEnrollmentsInput{
+		Actor:  adminActor(),
+		Search: "  Budi  ",
+	}); err != nil {
 		t.Fatalf("admin FindAllEnrollments() error = %v", err)
 	}
 	if repo.lastFilter.UserID != 0 {
 		t.Errorf("admin user filter = %d, want 0 for unscoped", repo.lastFilter.UserID)
 	}
+	if repo.lastFilter.Search != "Budi" {
+		t.Errorf("admin search filter = %q, want Budi", repo.lastFilter.Search)
+	}
 }
 
 func TestFindCatalogEnrollmentsResolvesCatalogAndRequiresAdmin(t *testing.T) {
 	repo := &fakeTrainingEnrollmentRepository{}
-	catalogRepo := &fakeTrainingCatalogRepository{findResult: entity.TrainingCatalog{ID: 4, PublicID: "YTP-000004"}}
+	catalogRepo := &fakeTrainingCatalogRepository{findResult: entity.TrainingCatalog{ID: 4, PublicID: "TCY-000004"}}
 	uc := usecase.NewTrainingEnrollmentUseCase(repo, catalogRepo)
 
 	if _, err := uc.FindCatalogEnrollments(context.Background(), usecase.FindCatalogEnrollmentsInput{
 		Actor:           memberActor(),
-		CatalogPublicID: "YTP-000004",
+		CatalogPublicID: "TCY-000004",
 	}); !errors.Is(err, usecase.ErrForbidden) {
 		t.Fatalf("member FindCatalogEnrollments() error = %v, want ErrForbidden", err)
 	}
 
 	if _, err := uc.FindCatalogEnrollments(context.Background(), usecase.FindCatalogEnrollmentsInput{
 		Actor:           adminActor(),
-		CatalogPublicID: "YTP-000004",
+		CatalogPublicID: "TCY-000004",
+		Search:          "  Siti  ",
 		Status:          "accepted",
 	}); err != nil {
 		t.Fatalf("admin FindCatalogEnrollments() error = %v", err)
 	}
 	if repo.lastFilter.CatalogID != 4 {
 		t.Errorf("catalog filter = %d, want 4", repo.lastFilter.CatalogID)
+	}
+	if repo.lastFilter.Search != "Siti" {
+		t.Errorf("search filter = %q, want Siti", repo.lastFilter.Search)
 	}
 	if repo.lastFilter.Status != entity.TrainingEnrollmentStatusAccepted {
 		t.Errorf("status filter = %q, want accepted", repo.lastFilter.Status)

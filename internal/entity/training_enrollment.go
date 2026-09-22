@@ -32,6 +32,7 @@ type TrainingEnrollment struct {
 	PublicID          string
 	UserID            int
 	UserPublicID      string
+	FullName          string
 	TrainingCatalogID int
 	RegisterDate      *time.Time
 	Status            TrainingEnrollmentStatus
@@ -49,6 +50,7 @@ type TrainingEnrollment struct {
 type TrainingEnrollmentFilter struct {
 	UserID    int
 	CatalogID int
+	Search    string
 	Status    TrainingEnrollmentStatus
 	Cursor    int
 	Limit     int
