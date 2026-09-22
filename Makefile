@@ -21,10 +21,10 @@ help:
 	@echo "  migrate-force    Force a version: make migrate-force version=1"
 	@echo "  migrate-version  Print the current migration version"
 	@echo ""
-	@echo "Compose commands:"
-	@echo "  compose-up       Start containers"
-	@echo "  compose-down     Stop containers"
-	@echo "  compose-down-v   Stop containers and remove volumes"
+	@echo "Compose commands (default engine=podman; override with engine=docker):"
+	@echo "  compose-up       Start containers: make compose-up [engine=docker]"
+	@echo "  compose-down     Stop containers: make compose-down [engine=docker]"
+	@echo "  compose-down-v   Stop containers and remove volumes: make compose-down-v [engine=docker]"
 
 run:
 	go run ./cmd/web
