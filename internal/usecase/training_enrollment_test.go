@@ -102,6 +102,22 @@ func TestEnrollRejectsMissingIdentity(t *testing.T) {
 	}
 }
 
+func TestEnrollRejectsNonMemberRole(t *testing.T) {
+	repo := &fakeTrainingEnrollmentRepository{}
+	uc := usecase.NewTrainingEnrollmentUseCase(repo, &fakeTrainingCatalogRepository{})
+
+	_, err := uc.Enroll(context.Background(), usecase.CreateTrainingEnrollmentInput{
+		Actor:           adminActor(),
+		CatalogPublicID: "TCY-000004",
+	})
+	if !errors.Is(err, usecase.ErrBadRequest) {
+		t.Fatalf("Enroll() error = %v, want ErrBadRequest", err)
+	}
+	if repo.createCalls != 0 {
+		t.Errorf("create calls = %d, want 0", repo.createCalls)
+	}
+}
+
 func TestEnrollRequiresCatalogPublicID(t *testing.T) {
 	repo := &fakeTrainingEnrollmentRepository{}
 	uc := usecase.NewTrainingEnrollmentUseCase(repo, &fakeTrainingCatalogRepository{})

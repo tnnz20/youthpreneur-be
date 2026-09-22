@@ -1276,7 +1276,8 @@ Enroll the authenticated user in a catalog offering.
 ```
 
 The enrolling user, `register_date` (current date), initial `status` (`pending`), and
-timestamps are server-controlled. Enrollment is rejected with `409` when the catalog is
+timestamps are server-controlled. Only users with the `member` role may enroll; non-member users
+(such as admins) receive `400 Bad Request`. Enrollment is rejected with `409` when the catalog is
 `completed`/unset, is full, or the user already has an active enrollment.
 Enrollment is rejected with `404` when the catalog does not exist or is
 soft deleted.

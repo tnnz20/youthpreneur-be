@@ -136,6 +136,9 @@ func (u trainingEnrollmentUsecase) Enroll(
 	if input.Actor.ID == 0 {
 		return entity.TrainingEnrollment{}, ErrForbidden
 	}
+	if input.Actor.Role != entity.RoleMember {
+		return entity.TrainingEnrollment{}, badRequest("only members can enroll in training")
+	}
 
 	catalogPublicID := strings.TrimSpace(input.CatalogPublicID)
 	if catalogPublicID == "" {
