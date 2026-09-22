@@ -2,13 +2,19 @@ package usecase
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
+	"math/big"
 	"strings"
 	"time"
 
 	"github.com/tnnz20/youthpreneur-be/internal/entity"
 	"github.com/tnnz20/youthpreneur-be/internal/repository"
+)
+
+const (
+	trainingEnrollmentPublicIDPrefix = "ENR-"
 )
 
 // Training enrollment usecase errors returned for HTTP status mapping.
@@ -108,6 +114,17 @@ func NewTrainingEnrollmentUseCase(
 	}
 }
 
+// GenerateTrainingEnrollmentPublicID returns an ENR- prefixed identifier with six random decimal
+// digits drawn from crypto/rand.
+func GenerateTrainingEnrollmentPublicID() (string, error) {
+	suffix, err := rand.Int(rand.Reader, big.NewInt(publicIDMax))
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("%s%0*d", trainingEnrollmentPublicIDPrefix, publicIDDigits, suffix.Int64()), nil
+}
+
 // Enroll validates the request and delegates a transactional, capacity-safe
 // enrollment to the repository.
 func (u trainingEnrollmentUsecase) Enroll(
@@ -127,7 +144,7 @@ func (u trainingEnrollmentUsecase) Enroll(
 	registerDate := dateOnly(now)
 
 	for range publicIDAttempts {
-		publicID, err := GeneratePublicID()
+		publicID, err := GenerateTrainingEnrollmentPublicID()
 		if err != nil {
 			return entity.TrainingEnrollment{}, fmt.Errorf("generate public id: %w", err)
 		}

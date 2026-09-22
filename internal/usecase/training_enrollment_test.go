@@ -3,12 +3,15 @@ package usecase_test
 import (
 	"context"
 	"errors"
+	"regexp"
 	"testing"
 
 	"github.com/tnnz20/youthpreneur-be/internal/entity"
 	"github.com/tnnz20/youthpreneur-be/internal/repository"
 	"github.com/tnnz20/youthpreneur-be/internal/usecase"
 )
+
+var trainingEnrollmentPublicIDPattern = regexp.MustCompile(`^ENR-[0-9]{6}$`)
 
 type fakeTrainingEnrollmentRepository struct {
 	createResult entity.TrainingEnrollment
@@ -135,8 +138,8 @@ func TestEnrollAssignsActorAndRegisterDate(t *testing.T) {
 	if repo.lastCreated.Status != entity.TrainingEnrollmentStatusPending {
 		t.Errorf("status = %q, want pending", repo.lastCreated.Status)
 	}
-	if !publicIDPattern.MatchString(repo.lastCreated.PublicID) {
-		t.Errorf("public id = %q, want YTP- plus six digits", repo.lastCreated.PublicID)
+	if !trainingEnrollmentPublicIDPattern.MatchString(repo.lastCreated.PublicID) {
+		t.Errorf("public id = %q, want ENR- plus six digits", repo.lastCreated.PublicID)
 	}
 }
 
@@ -349,5 +352,15 @@ func TestFindCatalogEnrollmentsMapsMissingCatalog(t *testing.T) {
 	})
 	if !errors.Is(err, usecase.ErrTrainingCatalogNotFound) {
 		t.Fatalf("FindCatalogEnrollments() error = %v, want ErrTrainingCatalogNotFound", err)
+	}
+}
+
+func TestGenerateTrainingEnrollmentPublicID(t *testing.T) {
+	id, err := usecase.GenerateTrainingEnrollmentPublicID()
+	if err != nil {
+		t.Fatalf("GenerateTrainingEnrollmentPublicID() error = %v", err)
+	}
+	if !trainingEnrollmentPublicIDPattern.MatchString(id) {
+		t.Errorf("generated public id = %q, want matching %s", id, trainingEnrollmentPublicIDPattern.String())
 	}
 }

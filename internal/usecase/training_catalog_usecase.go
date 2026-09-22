@@ -2,8 +2,10 @@ package usecase
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
+	"math/big"
 	"net/url"
 	"strings"
 	"time"
@@ -13,6 +15,7 @@ import (
 )
 
 const (
+	trainingCatalogPublicIDPrefix     = "TCY-"
 	maxTrainingCatalogTitleLength     = 255
 	maxTrainingCatalogPhoneLength     = 50
 	maxTrainingCatalogLinkLength      = 255
@@ -114,8 +117,19 @@ func NewTrainingCatalogUseCase(repo repository.TrainingCatalogRepository) Traini
 	}
 }
 
+// GenerateTrainingCatalogPublicID returns a TCY- prefixed identifier with six random decimal
+// digits drawn from crypto/rand.
+func GenerateTrainingCatalogPublicID() (string, error) {
+	suffix, err := rand.Int(rand.Reader, big.NewInt(publicIDMax))
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("%s%0*d", trainingCatalogPublicIDPrefix, publicIDDigits, suffix.Int64()), nil
+}
+
 // CreateTrainingCatalog validates input, assigns a generated public id, and
-// persists the catalog.
+// persists the catalog. Actor must be an admin.
 func (u trainingCatalogUsecase) CreateTrainingCatalog(
 	ctx context.Context,
 	input CreateTrainingCatalogInput,
@@ -130,7 +144,7 @@ func (u trainingCatalogUsecase) CreateTrainingCatalog(
 	}
 
 	for range publicIDAttempts {
-		publicID, err := GeneratePublicID()
+		publicID, err := GenerateTrainingCatalogPublicID()
 		if err != nil {
 			return entity.TrainingCatalog{}, fmt.Errorf("generate public id: %w", err)
 		}

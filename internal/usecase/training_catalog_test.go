@@ -3,6 +3,7 @@ package usecase_test
 import (
 	"context"
 	"errors"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +12,8 @@ import (
 	"github.com/tnnz20/youthpreneur-be/internal/repository"
 	"github.com/tnnz20/youthpreneur-be/internal/usecase"
 )
+
+var trainingCatalogPublicIDPattern = regexp.MustCompile(`^TCY-[0-9]{6}$`)
 
 type fakeTrainingCatalogRepository struct {
 	createErr   error
@@ -138,8 +141,8 @@ func TestCreateTrainingCatalogNormalizesAndGeneratesPublicID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTrainingCatalog() error = %v", err)
 	}
-	if !publicIDPattern.MatchString(created.PublicID) {
-		t.Errorf("public id = %q, want YTP- plus six digits", created.PublicID)
+	if !trainingCatalogPublicIDPattern.MatchString(created.PublicID) {
+		t.Errorf("public id = %q, want TCY- plus six digits", created.PublicID)
 	}
 	if repo.lastCreated.Title != "Bisnis Digital" || repo.lastCreated.Category != entity.TrainingCategoryWirausahaAgribisnis {
 		t.Errorf("normalized catalog = %+v, want trimmed title and category", repo.lastCreated)
@@ -491,5 +494,15 @@ func TestTrainingCatalogDateParsingRejectsFutureIndependentFormat(t *testing.T) 
 		StartDate: future,
 	}); err != nil {
 		t.Fatalf("CreateTrainingCatalog() error = %v, want future date accepted", err)
+	}
+}
+
+func TestGenerateTrainingCatalogPublicID(t *testing.T) {
+	id, err := usecase.GenerateTrainingCatalogPublicID()
+	if err != nil {
+		t.Fatalf("GenerateTrainingCatalogPublicID() error = %v", err)
+	}
+	if !trainingCatalogPublicIDPattern.MatchString(id) {
+		t.Errorf("generated public id = %q, want matching %s", id, trainingCatalogPublicIDPattern.String())
 	}
 }

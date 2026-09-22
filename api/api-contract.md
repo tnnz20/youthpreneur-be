@@ -639,7 +639,7 @@ request body or query. Every create, update, and delete writes an audit row in
 `enterprise_audit_events` in the same transaction as the mutation.
 
 Enterprises use a generated `TPN-DDDDDD` public ID (`TPN-` plus six random digits),
-which distinguishes them from user and training IDs (`YTP-DDDDDD`).
+which distinguishes them from user (`YTP-DDDDDD`), training catalog (`TCY-DDDDDD`), and enrollment (`ENR-DDDDDD`) IDs.
 
 Enterprise business sectors (`business_sector_enum`): `Kuliner`,
 `Perdagangan Ritel`, `Agribisnis & Ketahanan Pangan`,
@@ -1029,7 +1029,7 @@ List the audit event history (`create`, `update`, `delete`) for an enterprise, o
 ## Training Catalog and Enrollment Endpoints
 
 Training catalog entries are an independent aggregate with a generated
-`YTP-DDDDDD` public ID. Catalog reads are public; catalog writes are admin-only.
+`TCY-DDDDDD` public ID. Catalog reads are public; catalog writes are admin-only.
 Enrollments link one user to one catalog offering and always take
 `user_id` from the authenticated identity, never from the request.
 
@@ -1080,7 +1080,7 @@ the returned value and must not construct cursors.
 {
   "training_catalogs": [
     {
-      "public_id": "YTP-482910",
+      "public_id": "TCY-482910",
       "title": "Bisnis Digital",
       "description": "Pelatihan pemasaran digital",
       "pic_phone": "08123456789",
@@ -1264,13 +1264,13 @@ Enroll the authenticated user in a catalog offering.
 
 | Field | Type | Required | Format | Notes |
 | --- | --- | --- | --- | --- |
-| `catalog_public_id` | string | ✓ | `YTP-DDDDDD` | Catalog to enroll in |
+| `catalog_public_id` | string | ✓ | `TCY-DDDDDD` | Catalog to enroll in |
 
 **Request Example:**
 
 ```json
 {
-  "catalog_public_id": "YTP-482910"
+  "catalog_public_id": "TCY-482910"
 }
 ```
 
@@ -1284,14 +1284,14 @@ soft deleted.
 
 ```json
 {
-  "public_id": "YTP-482920",
+  "public_id": "ENR-482920",
   "user_public_id": "YTP-000007",
   "register_date": "2026-09-17",
   "status": "pending",
   "created_at": 1700000000,
   "updated_at": 1700000000,
   "catalog": {
-    "public_id": "YTP-482910",
+    "public_id": "TCY-482910",
     "title": "Bisnis Digital",
     "category": "Wirausaha & Agribisnis",
     "max_slots": 30,
@@ -1376,14 +1376,14 @@ List the current user's enrollment history, including cancelled enrollments.
 {
   "training_enrollments": [
     {
-      "public_id": "YTP-482920",
+      "public_id": "ENR-482920",
       "user_public_id": "YTP-000007",
       "register_date": "2026-09-17",
       "status": "accepted",
       "created_at": 1700000000,
       "updated_at": 1700000100,
       "catalog": {
-        "public_id": "YTP-482910",
+        "public_id": "TCY-482910",
         "title": "Bisnis Digital",
         "training_status": "planned"
       }
@@ -1470,7 +1470,7 @@ Request bodies are limited to 1 MiB. Unknown JSON fields are currently ignored.
 - `deleted_at` is omitted from API responses and is NULL until soft deletion.
 - `birth_date` uses ISO 8601 `YYYY-MM-DD`.
 - User, profile, and enterprise primary keys are internal `SERIAL` integers.
-- Public IDs use `YTP-DDDDDD` for users and training catalogs/enrollments, and `TPN-DDDDDD` for enterprises; they are lookup handles, not secrets or auth tokens.
+- Public IDs use `YTP-DDDDDD` for users, `TPN-DDDDDD` for enterprises, `TCY-DDDDDD` for training catalogs, and `ENR-DDDDDD` for training enrollments; they are lookup handles, not secrets or auth tokens.
 - Password hashes are stored in `users.password` and never serialized.
 - Refresh sessions store only SHA-256 token hashes plus expiry, revoke state, a
   `family_id`, a `revocation_reason`, and — only during the 10-second rotation
