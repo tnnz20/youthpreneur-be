@@ -16,6 +16,8 @@ var (
 	// ErrDuplicateTrainingCatalogPublicID indicates another catalog already uses
 	// the public id.
 	ErrDuplicateTrainingCatalogPublicID = errors.New("repository: duplicate training catalog public id")
+	// ErrInvalidTrainingCatalogDateRange indicates end_date is before start_date.
+	ErrInvalidTrainingCatalogDateRange = errors.New("repository: end_date must be on or after start_date")
 )
 
 // TrainingCatalogRepository persists training catalog entries.

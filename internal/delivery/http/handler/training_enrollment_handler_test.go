@@ -35,6 +35,19 @@ type fakeTrainingEnrollmentUseCase struct {
 	catalogResult    usecase.FindTrainingEnrollmentsResult
 	catalogErr       error
 	lastCatalogInput usecase.FindCatalogEnrollmentsInput
+
+	updateStatusResult    entity.TrainingEnrollment
+	updateStatusErr       error
+	lastUpdateStatusInput usecase.UpdateTrainingEnrollmentStatusInput
+}
+
+func (f *fakeTrainingEnrollmentUseCase) UpdateStatus(
+	_ context.Context,
+	input usecase.UpdateTrainingEnrollmentStatusInput,
+) (entity.TrainingEnrollment, error) {
+	f.lastUpdateStatusInput = input
+
+	return f.updateStatusResult, f.updateStatusErr
 }
 
 func (f *fakeTrainingEnrollmentUseCase) Enroll(
@@ -92,19 +105,21 @@ func newTrainingEnrollmentRouter(uc usecase.TrainingEnrollmentUseCase, identity 
 
 func TestCreateTrainingEnrollmentUsesActor(t *testing.T) {
 	uc := &fakeTrainingEnrollmentUseCase{enrollResult: entity.TrainingEnrollment{
-		PublicID:     "YTP-000111",
+		PublicID:     "ENR-000111",
 		UserPublicID: "YTP-000007",
-		Catalog:      &entity.TrainingCatalog{PublicID: "YTP-000004", Name: "Kelas"},
+		FullName:     "Budi Pratama",
+		Status:       entity.TrainingEnrollmentStatusPending,
+		Catalog:      &entity.TrainingCatalog{PublicID: "TCY-000004", Title: "Kelas", TrainingStatus: entity.ProcessStatusPlanned},
 	}}
 	actor := entity.User{ID: 7, PublicID: "YTP-000007", Role: entity.RoleMember}
 
 	rec := serve(t, newTrainingEnrollmentRouter(uc, enterpriseIdentity(actor)),
-		http.MethodPost, "/training-enrollments", `{"catalog_public_id":"YTP-000004"}`)
+		http.MethodPost, "/training-enrollments", `{"catalog_public_id":"TCY-000004"}`)
 
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want %d (body %s)", rec.Code, http.StatusCreated, rec.Body.String())
 	}
-	if uc.lastEnrollInput.Actor.ID != 7 || uc.lastEnrollInput.CatalogPublicID != "YTP-000004" {
+	if uc.lastEnrollInput.Actor.ID != 7 || uc.lastEnrollInput.CatalogPublicID != "TCY-000004" {
 		t.Errorf("enroll input = %+v, want actor 7 and catalog public id", uc.lastEnrollInput)
 	}
 
@@ -112,8 +127,42 @@ func TestCreateTrainingEnrollmentUsesActor(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode body: %v", err)
 	}
-	if body.Catalog == nil || body.Catalog.PublicID != "YTP-000004" {
-		t.Errorf("catalog = %+v, want joined catalog", body.Catalog)
+	if body.FullName != "Budi Pratama" {
+		t.Errorf("full_name = %q, want Budi Pratama", body.FullName)
+	}
+	if body.Catalog == nil || body.Catalog.PublicID != "TCY-000004" || body.Catalog.Title != "Kelas" || body.Catalog.TrainingStatus != "planned" {
+		t.Errorf("catalog = %+v, want joined catalog with title and status", body.Catalog)
+	}
+	if body.Status != "pending" {
+		t.Errorf("status = %q, want pending", body.Status)
+	}
+}
+
+func TestUpdateTrainingEnrollmentStatus(t *testing.T) {
+	uc := &fakeTrainingEnrollmentUseCase{
+		updateStatusResult: entity.TrainingEnrollment{
+			PublicID: "YTP-000111",
+			Status:   entity.TrainingEnrollmentStatusAccepted,
+		},
+	}
+	actor := entity.User{ID: 9, Role: entity.RoleAdmin}
+
+	rec := serve(t, newTrainingEnrollmentRouter(uc, enterpriseIdentity(actor)),
+		http.MethodPatch, "/training-enrollments/YTP-000111/status", `{"status":"accepted"}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body %s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if uc.lastUpdateStatusInput.PublicID != "YTP-000111" || uc.lastUpdateStatusInput.Status != "accepted" {
+		t.Errorf("status input = %+v, want YTP-000111 and accepted", uc.lastUpdateStatusInput)
+	}
+
+	var body model.TrainingEnrollmentResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.Status != "accepted" {
+		t.Errorf("status = %q, want accepted", body.Status)
 	}
 }
 
@@ -189,17 +238,45 @@ func TestListMyEnrollmentsParsesPagingAndReturnsCursor(t *testing.T) {
 	}
 }
 
-func TestListCatalogEnrollmentsPassesCatalogPublicID(t *testing.T) {
+func TestListMyEnrollmentsPassesStatus(t *testing.T) {
 	uc := &fakeTrainingEnrollmentUseCase{}
 
-	rec := serve(t, newTrainingEnrollmentRouter(uc, enterpriseIdentity(entity.User{ID: 9, Role: entity.RoleAdmin})),
-		http.MethodGet, "/training-enrollments/catalog/YTP-000004", "")
+	rec := serve(t, newTrainingEnrollmentRouter(uc, enterpriseIdentity(entity.User{ID: 7, Role: entity.RoleMember})),
+		http.MethodGet, "/training-enrollments/my?status=cancelled&search=Budi", "")
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body %s)", rec.Code, http.StatusOK, rec.Body.String())
 	}
-	if uc.lastCatalogInput.CatalogPublicID != "YTP-000004" || uc.lastCatalogInput.Actor.ID != 9 {
-		t.Errorf("catalog input = %+v, want catalog public id and actor 9", uc.lastCatalogInput)
+	if uc.lastMyInput.Actor.ID != 7 || uc.lastMyInput.Status != "cancelled" || uc.lastMyInput.Search != "Budi" {
+		t.Errorf("my input = %+v, want actor 7 status cancelled search Budi", uc.lastMyInput)
+	}
+}
+
+func TestListCatalogEnrollmentsPassesCatalogPublicID(t *testing.T) {
+	uc := &fakeTrainingEnrollmentUseCase{}
+
+	rec := serve(t, newTrainingEnrollmentRouter(uc, enterpriseIdentity(entity.User{ID: 9, Role: entity.RoleAdmin})),
+		http.MethodGet, "/training-enrollments/catalog/TCY-000004?status=accepted&search=Budi", "")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body %s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if uc.lastCatalogInput.CatalogPublicID != "TCY-000004" || uc.lastCatalogInput.Actor.ID != 9 || uc.lastCatalogInput.Status != "accepted" || uc.lastCatalogInput.Search != "Budi" {
+		t.Errorf("catalog input = %+v, want catalog public id, actor 9, status accepted, search Budi", uc.lastCatalogInput)
+	}
+}
+
+func TestListAllEnrollmentsPassesSearchAndStatus(t *testing.T) {
+	uc := &fakeTrainingEnrollmentUseCase{}
+
+	rec := serve(t, newTrainingEnrollmentRouter(uc, enterpriseIdentity(entity.User{ID: 9, Role: entity.RoleAdmin})),
+		http.MethodGet, "/training-enrollments?search=Siti&status=pending", "")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body %s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if uc.lastAllInput.Actor.ID != 9 || uc.lastAllInput.Status != "pending" || uc.lastAllInput.Search != "Siti" {
+		t.Errorf("all input = %+v, want actor 9, status pending, search Siti", uc.lastAllInput)
 	}
 }
 
@@ -245,5 +322,8 @@ func TestTrainingEnrollmentRoutePolicy(t *testing.T) {
 	}
 	if rec := serveWithCookie(t, router, http.MethodGet, "/training-enrollments/catalog/YTP-000004", "", "good"); rec.Code != http.StatusForbidden {
 		t.Fatalf("member catalog-history status = %d, want %d", rec.Code, http.StatusForbidden)
+	}
+	if rec := serveWithCookie(t, router, http.MethodPatch, "/training-enrollments/YTP-000111/status", `{"status":"accepted"}`, "good"); rec.Code != http.StatusForbidden {
+		t.Fatalf("member update-status status = %d, want %d", rec.Code, http.StatusForbidden)
 	}
 }

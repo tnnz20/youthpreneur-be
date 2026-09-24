@@ -30,6 +30,7 @@ func isolateConfig(t *testing.T) {
 		"APP_RATE_LIMIT_LOGIN_PER_MINUTE",
 		"APP_RATE_LIMIT_REFRESH_PER_MINUTE",
 		"APP_RATE_LIMIT_GENERAL_PER_MINUTE",
+		"UPLOAD_DIR",
 		"POSTGRES_HOST",
 		"POSTGRES_PORT",
 		"POSTGRES_USER",
@@ -307,5 +308,20 @@ func TestLoadOverrides(t *testing.T) {
 	}
 	if cfg.ShutdownTimeout != 500*time.Millisecond {
 		t.Errorf("shutdown timeout = %v, want %v", cfg.ShutdownTimeout, 500*time.Millisecond)
+	}
+}
+
+func TestLoadUploadDir(t *testing.T) {
+	isolateConfig(t)
+
+	cfg := Load()
+	if cfg.UploadDir != "./var/uploads" {
+		t.Errorf("upload dir default = %q, want %q", cfg.UploadDir, "./var/uploads")
+	}
+
+	t.Setenv("UPLOAD_DIR", "/custom/uploads")
+	cfg = Load()
+	if cfg.UploadDir != "/custom/uploads" {
+		t.Errorf("upload dir override = %q, want %q", cfg.UploadDir, "/custom/uploads")
 	}
 }

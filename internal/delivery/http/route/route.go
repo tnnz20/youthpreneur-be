@@ -2,9 +2,32 @@ package route
 
 import (
 	"net/http"
+	"os"
 
 	"github.com/tnnz20/youthpreneur-be/internal/delivery/http/handler"
 )
+
+// noDirFileSystem prevents directory listing by returning os.ErrNotExist when a directory is requested.
+type noDirFileSystem struct {
+	fs http.FileSystem
+}
+
+func (nfs noDirFileSystem) Open(name string) (http.File, error) {
+	f, err := nfs.fs.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	stat, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	if stat.IsDir() {
+		_ = f.Close()
+		return nil, os.ErrNotExist
+	}
+	return f, nil
+}
 
 // Middleware wraps an HTTP handler with a cross-cutting concern.
 type Middleware func(http.Handler) http.Handler
@@ -19,6 +42,7 @@ type Dependencies struct {
 	EnterpriseHandler         *handler.EnterpriseHandler
 	TrainingCatalogHandler    *handler.TrainingCatalogHandler
 	TrainingEnrollmentHandler *handler.TrainingEnrollmentHandler
+	UploadDir                 string
 
 	Authenticate     Middleware
 	RequireAdmin     Middleware
@@ -40,6 +64,10 @@ func NewRouter(deps Dependencies) *Router {
 // Register attaches application routes to mux with the approved public,
 // authenticated, and admin policy.
 func (rt *Router) Register(mux *http.ServeMux) {
+	if rt.deps.UploadDir != "" {
+		mux.Handle("GET /uploads/", http.StripPrefix("/uploads/", http.FileServer(noDirFileSystem{fs: http.Dir(rt.deps.UploadDir)})))
+	}
+
 	rt.register(mux, "GET /healthz", nil, rt.deps.HealthHandler.Check)
 
 	rt.register(mux, "POST /users", nil, rt.deps.UserHandler.Create)
@@ -72,6 +100,7 @@ func (rt *Router) Register(mux *http.ServeMux) {
 	rt.register(mux, "GET /training-catalog", nil, rt.deps.TrainingCatalogHandler.List)
 	rt.register(mux, "GET /training-catalog/{publicID}", nil, rt.deps.TrainingCatalogHandler.Get)
 	rt.register(mux, "POST /training-catalog", admin, rt.deps.TrainingCatalogHandler.Create)
+	rt.register(mux, "POST /training-catalog/upload-thumbnail", admin, rt.deps.TrainingCatalogHandler.UploadThumbnail)
 	rt.register(mux, "PATCH /training-catalog/{publicID}", admin, rt.deps.TrainingCatalogHandler.Update)
 	rt.register(mux, "PATCH /training-catalog/{publicID}/status", admin, rt.deps.TrainingCatalogHandler.UpdateStatus)
 	rt.register(mux, "DELETE /training-catalog/{publicID}", admin, rt.deps.TrainingCatalogHandler.Delete)
@@ -79,6 +108,7 @@ func (rt *Router) Register(mux *http.ServeMux) {
 	// Enrollment mutations are authenticated and self-scoped; admin history is
 	// admin-only.
 	rt.register(mux, "POST /training-enrollments", authenticated, rt.deps.TrainingEnrollmentHandler.Create)
+	rt.register(mux, "PATCH /training-enrollments/{publicID}/status", admin, rt.deps.TrainingEnrollmentHandler.UpdateStatus)
 	rt.register(mux, "DELETE /training-enrollments/{publicID}", authenticated, rt.deps.TrainingEnrollmentHandler.Cancel)
 	rt.register(mux, "GET /training-enrollments/my", authenticated, rt.deps.TrainingEnrollmentHandler.ListMine)
 	rt.register(mux, "GET /training-enrollments", admin, rt.deps.TrainingEnrollmentHandler.List)

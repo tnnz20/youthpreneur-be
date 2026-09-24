@@ -3,7 +3,7 @@
 engine ?= podman
 compose := $(engine) compose
 
-.PHONY: help run test vet fmt build seed migrate-up migrate-down migrate-force migrate-version compose-up compose-down compose-down-v
+.PHONY: help run test vet fmt build seed seed-catalog migrate-up migrate-down migrate-force migrate-version compose-up compose-down compose-down-v
 
 help:
 	@echo "Go commands:"
@@ -13,6 +13,7 @@ help:
 	@echo "  fmt              Format Go sources"
 	@echo "  build            Build bin/web"
 	@echo "  seed             Seed the initial admin from SEEDER_ADMIN_*"
+	@echo "  seed-catalog     Seed training catalogs: make seed-catalog [file=path/to.csv]"
 	@echo ""
 	@echo "Migration commands:"
 	@echo "  migrate-up       Apply database migrations"
@@ -20,10 +21,10 @@ help:
 	@echo "  migrate-force    Force a version: make migrate-force version=1"
 	@echo "  migrate-version  Print the current migration version"
 	@echo ""
-	@echo "Compose commands:"
-	@echo "  compose-up       Start containers"
-	@echo "  compose-down     Stop containers"
-	@echo "  compose-down-v   Stop containers and remove volumes"
+	@echo "Compose commands (default engine=podman; override with engine=docker):"
+	@echo "  compose-up       Start containers: make compose-up [engine=docker]"
+	@echo "  compose-down     Stop containers: make compose-down [engine=docker]"
+	@echo "  compose-down-v   Stop containers and remove volumes: make compose-down-v [engine=docker]"
 
 run:
 	go run ./cmd/web
@@ -42,6 +43,9 @@ build:
 
 seed:
 	go run ./cmd/seeder
+
+seed-catalog:
+	go run ./cmd/seed-catalog $(if $(file),-file $(file))
 
 migrate-up:
 	go run ./cmd/migrate up

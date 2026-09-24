@@ -2,56 +2,88 @@ package entity
 
 import "time"
 
+// TrainingCategory represents training category enum values.
+type TrainingCategory string
+
+const (
+	TrainingCategoryWirausahaAgribisnis TrainingCategory = "Wirausaha & Agribisnis"
+	TrainingCategoryKriyaKreativitas    TrainingCategory = "Kriya & Kreativitas"
+	TrainingCategoryDigitalIPTEK        TrainingCategory = "Digital & IPTEK"
+	TrainingCategoryOlahragaPrestasi    TrainingCategory = "Olahraga & Prestasi"
+	TrainingCategoryKomunitasPemuda     TrainingCategory = "Komunitas & Pemuda"
+)
+
+// ValidTrainingCategory reports whether category is a known training category.
+func ValidTrainingCategory(category TrainingCategory) bool {
+	switch category {
+	case TrainingCategoryWirausahaAgribisnis,
+		TrainingCategoryKriyaKreativitas,
+		TrainingCategoryDigitalIPTEK,
+		TrainingCategoryOlahragaPrestasi,
+		TrainingCategoryKomunitasPemuda:
+		return true
+	default:
+		return false
+	}
+}
+
 // TrainingCatalog is a training offering. Every descriptive field is optional
-// and stored as NULL when empty. TrainingSlots is nil for unlimited capacity.
+// and stored as NULL when empty. MaxSlots is nil for unlimited capacity.
 type TrainingCatalog struct {
-	ID             int
-	PublicID       string
-	Name           string
-	Description    string
-	PicPhone       string
-	Category       string
-	TrainingSlots  *int
-	TrainingStatus ProcessStatus
-	Link           string
-	TrainingDate   *time.Time
-	TrainingPeriod string
-	Speaker        string
-	CreatedAt      int64
-	UpdatedAt      int64
-	DeletedAt      *int64
+	ID              int
+	PublicID        string
+	Title           string
+	Description     string
+	PicPhone        string
+	Category        TrainingCategory
+	MaxSlots        *int
+	TrainingStatus  ProcessStatus
+	Link            string
+	Address         string
+	Thumbnail       string
+	StartDate       *time.Time
+	EndDate         *time.Time
+	Mentor          string
+	RegisteredCount int
+	CreatedAt       int64
+	UpdatedAt       int64
+	DeletedAt       *int64
 }
 
 // TrainingCatalogUpdate carries normalized optional catalog field changes. A
 // nil field is left untouched; an empty string clears a nullable string field.
-// TrainingSlots, when non-nil, must be positive. UpdatedAt is the mutation
+// MaxSlots, when non-nil, must be positive. UpdatedAt is the mutation
 // timestamp recorded on the persisted row.
 type TrainingCatalogUpdate struct {
-	Name           *string
+	Title          *string
 	Description    *string
 	PicPhone       *string
-	Category       *string
-	TrainingSlots  *int
+	Category       *TrainingCategory
+	MaxSlots       *int
 	TrainingStatus *ProcessStatus
 	Link           *string
-	TrainingDate   *time.Time
-	TrainingPeriod *string
-	Speaker        *string
+	Address        *string
+	Thumbnail      *string
+	StartDate      *time.Time
+	EndDate        *time.Time
+	Mentor         *string
 	UpdatedAt      int64
 }
 
 // TrainingCatalogFilter bounds and filters a cursor-paginated catalog query.
 //
 // Cursor is the last seen training_catalog.id; zero starts from the first row.
-// Every filter is ignored when empty or nil. TrainingStatus only accepts the
-// process_status_enum values.
+// Every filter is ignored when empty or nil.
 type TrainingCatalogFilter struct {
-	Category       string
+	Search         string
+	Title          string
+	Mentor         string
+	Category       TrainingCategory
 	TrainingStatus ProcessStatus
-	TrainingDate   *time.Time
-	TrainingPeriod string
+	StartDate      *time.Time
 	Cursor         int
 	Limit          int
+	Order          string
 }
 
 // IsOpenForEnrollment reports whether a catalog accepts new enrollments. A

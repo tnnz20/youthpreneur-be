@@ -28,6 +28,7 @@ type Config struct {
 	Version         string
 	ShutdownTimeout time.Duration
 	SecureCookies   bool
+	UploadDir       string
 	Postgres        PostgresConfig
 	Auth            AuthConfig
 	CORS            CORSConfig
@@ -156,6 +157,7 @@ func Load() Config {
 	v.SetDefault("APP_RATE_LIMIT_LOGIN_PER_MINUTE", defaultLoginRateLimit)
 	v.SetDefault("APP_RATE_LIMIT_REFRESH_PER_MINUTE", defaultRefreshRateLimit)
 	v.SetDefault("APP_RATE_LIMIT_GENERAL_PER_MINUTE", defaultGeneralRateLimit)
+	v.SetDefault("UPLOAD_DIR", "./var/uploads")
 	v.SetDefault("POSTGRES_HOST", "localhost")
 	v.SetDefault("POSTGRES_PORT", 5432)
 	v.SetDefault("POSTGRES_USER", "postgres")
@@ -180,6 +182,7 @@ func Load() Config {
 		Version:         v.GetString("APP_VERSION"),
 		ShutdownTimeout: shutdownTimeout,
 		SecureCookies:   environment == EnvironmentProduction,
+		UploadDir:       v.GetString("UPLOAD_DIR"),
 		Auth: AuthConfig{
 			Secret:          v.GetString("APP_AUTH_SECRET"),
 			AccessTokenTTL:  v.GetDuration("APP_AUTH_ACCESS_TOKEN_TTL"),

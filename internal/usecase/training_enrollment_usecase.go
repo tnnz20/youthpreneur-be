@@ -2,13 +2,19 @@ package usecase
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
+	"math/big"
 	"strings"
 	"time"
 
 	"github.com/tnnz20/youthpreneur-be/internal/entity"
 	"github.com/tnnz20/youthpreneur-be/internal/repository"
+)
+
+const (
+	trainingEnrollmentPublicIDPrefix = "ENR-"
 )
 
 // Training enrollment usecase errors returned for HTTP status mapping.
@@ -36,6 +42,8 @@ type CreateTrainingEnrollmentInput struct {
 // FindTrainingEnrollmentsInput bounds an enrollment history request.
 type FindTrainingEnrollmentsInput struct {
 	Actor  entity.User
+	Search string
+	Status string
 	Cursor int
 	Limit  int
 }
@@ -45,8 +53,18 @@ type FindTrainingEnrollmentsInput struct {
 type FindCatalogEnrollmentsInput struct {
 	Actor           entity.User
 	CatalogPublicID string
+	Search          string
+	Status          string
 	Cursor          int
 	Limit           int
+}
+
+// UpdateTrainingEnrollmentStatusInput holds the fields needed to update an
+// enrollment's status.
+type UpdateTrainingEnrollmentStatusInput struct {
+	Actor    entity.User
+	PublicID string
+	Status   string
 }
 
 // FindTrainingEnrollmentsResult is one page of enrollments plus the cursor for
@@ -66,6 +84,8 @@ type TrainingEnrollmentUseCase interface {
 	// CancelEnrollment cancels the actor's active enrollment matching publicID.
 	// Admins may cancel any enrollment.
 	CancelEnrollment(ctx context.Context, actor entity.User, publicID string) error
+	// UpdateStatus updates the approval status of an enrollment. It is admin-only.
+	UpdateStatus(ctx context.Context, input UpdateTrainingEnrollmentStatusInput) (entity.TrainingEnrollment, error)
 	// FindMyEnrollments returns one page of the actor's enrollment history,
 	// including cancelled enrollments.
 	FindMyEnrollments(ctx context.Context, input FindTrainingEnrollmentsInput) (FindTrainingEnrollmentsResult, error)
@@ -96,6 +116,17 @@ func NewTrainingEnrollmentUseCase(
 	}
 }
 
+// GenerateTrainingEnrollmentPublicID returns an ENR- prefixed identifier with six random decimal
+// digits drawn from crypto/rand.
+func GenerateTrainingEnrollmentPublicID() (string, error) {
+	suffix, err := rand.Int(rand.Reader, big.NewInt(publicIDMax))
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("%s%0*d", trainingEnrollmentPublicIDPrefix, publicIDDigits, suffix.Int64()), nil
+}
+
 // Enroll validates the request and delegates a transactional, capacity-safe
 // enrollment to the repository.
 func (u trainingEnrollmentUsecase) Enroll(
@@ -104,6 +135,9 @@ func (u trainingEnrollmentUsecase) Enroll(
 ) (entity.TrainingEnrollment, error) {
 	if input.Actor.ID == 0 {
 		return entity.TrainingEnrollment{}, ErrForbidden
+	}
+	if input.Actor.Role != entity.RoleMember {
+		return entity.TrainingEnrollment{}, badRequest("only members can enroll in training")
 	}
 
 	catalogPublicID := strings.TrimSpace(input.CatalogPublicID)
@@ -115,7 +149,7 @@ func (u trainingEnrollmentUsecase) Enroll(
 	registerDate := dateOnly(now)
 
 	for range publicIDAttempts {
-		publicID, err := GeneratePublicID()
+		publicID, err := GenerateTrainingEnrollmentPublicID()
 		if err != nil {
 			return entity.TrainingEnrollment{}, fmt.Errorf("generate public id: %w", err)
 		}
@@ -124,6 +158,7 @@ func (u trainingEnrollmentUsecase) Enroll(
 			PublicID:     publicID,
 			UserID:       input.Actor.ID,
 			RegisterDate: &registerDate,
+			Status:       entity.TrainingEnrollmentStatusPending,
 			CreatedAt:    now,
 			UpdatedAt:    now,
 			Catalog:      &entity.TrainingCatalog{PublicID: catalogPublicID},
@@ -160,6 +195,33 @@ func (u trainingEnrollmentUsecase) CancelEnrollment(
 	return nil
 }
 
+// UpdateStatus updates the approval status of an enrollment.
+func (u trainingEnrollmentUsecase) UpdateStatus(
+	ctx context.Context,
+	input UpdateTrainingEnrollmentStatusInput,
+) (entity.TrainingEnrollment, error) {
+	if input.Actor.Role != entity.RoleAdmin {
+		return entity.TrainingEnrollment{}, ErrForbidden
+	}
+
+	publicID := strings.TrimSpace(input.PublicID)
+	if publicID == "" {
+		return entity.TrainingEnrollment{}, badRequest("public_id is required")
+	}
+
+	status, err := normalizeEnrollmentStatus(input.Status)
+	if err != nil || status == "" {
+		return entity.TrainingEnrollment{}, badRequest("invalid training enrollment status")
+	}
+
+	updated, err := u.repo.UpdateTrainingEnrollmentStatus(ctx, publicID, status, u.now())
+	if err != nil {
+		return entity.TrainingEnrollment{}, mapTrainingEnrollmentRepositoryError(err)
+	}
+
+	return updated, nil
+}
+
 // FindMyEnrollments returns one page of the actor's enrollment history.
 func (u trainingEnrollmentUsecase) FindMyEnrollments(
 	ctx context.Context,
@@ -169,8 +231,15 @@ func (u trainingEnrollmentUsecase) FindMyEnrollments(
 		return FindTrainingEnrollmentsResult{}, ErrForbidden
 	}
 
+	status, err := normalizeEnrollmentStatus(input.Status)
+	if err != nil {
+		return FindTrainingEnrollmentsResult{}, err
+	}
+
 	return u.findEnrollments(ctx, entity.TrainingEnrollmentFilter{
 		UserID: input.Actor.ID,
+		Search: strings.TrimSpace(input.Search),
+		Status: status,
 		Cursor: input.Cursor,
 		Limit:  input.Limit,
 	})
@@ -185,7 +254,14 @@ func (u trainingEnrollmentUsecase) FindAllEnrollments(
 		return FindTrainingEnrollmentsResult{}, ErrForbidden
 	}
 
+	status, err := normalizeEnrollmentStatus(input.Status)
+	if err != nil {
+		return FindTrainingEnrollmentsResult{}, err
+	}
+
 	return u.findEnrollments(ctx, entity.TrainingEnrollmentFilter{
+		Search: strings.TrimSpace(input.Search),
+		Status: status,
 		Cursor: input.Cursor,
 		Limit:  input.Limit,
 	})
@@ -205,11 +281,34 @@ func (u trainingEnrollmentUsecase) FindCatalogEnrollments(
 		return FindTrainingEnrollmentsResult{}, mapTrainingCatalogRepositoryError(err)
 	}
 
+	status, err := normalizeEnrollmentStatus(input.Status)
+	if err != nil {
+		return FindTrainingEnrollmentsResult{}, err
+	}
+
 	return u.findEnrollments(ctx, entity.TrainingEnrollmentFilter{
 		CatalogID: catalog.ID,
+		Search:    strings.TrimSpace(input.Search),
+		Status:    status,
 		Cursor:    input.Cursor,
 		Limit:     input.Limit,
 	})
+}
+
+func normalizeEnrollmentStatus(raw string) (entity.TrainingEnrollmentStatus, error) {
+	trimmed := strings.ToLower(strings.TrimSpace(raw))
+	if trimmed == "" {
+		return "", nil
+	}
+	if trimmed == "canceled" {
+		trimmed = "cancelled"
+	}
+	status := entity.TrainingEnrollmentStatus(trimmed)
+	if !entity.ValidTrainingEnrollmentStatus(status) {
+		return "", badRequest("invalid status")
+	}
+
+	return status, nil
 }
 
 func (u trainingEnrollmentUsecase) findEnrollments(

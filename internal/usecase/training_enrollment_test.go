@@ -3,12 +3,15 @@ package usecase_test
 import (
 	"context"
 	"errors"
+	"regexp"
 	"testing"
 
 	"github.com/tnnz20/youthpreneur-be/internal/entity"
 	"github.com/tnnz20/youthpreneur-be/internal/repository"
 	"github.com/tnnz20/youthpreneur-be/internal/usecase"
 )
+
+var trainingEnrollmentPublicIDPattern = regexp.MustCompile(`^ENR-[0-9]{6}$`)
 
 type fakeTrainingEnrollmentRepository struct {
 	createResult entity.TrainingEnrollment
@@ -20,6 +23,12 @@ type fakeTrainingEnrollmentRepository struct {
 	cancelCalls        int
 	lastCancelPublicID string
 	lastCancelUserID   int
+
+	updateStatusResult       entity.TrainingEnrollment
+	updateStatusErr          error
+	lastUpdateStatusPublicID string
+	lastUpdateStatus         entity.TrainingEnrollmentStatus
+	lastUpdateStatusAt       int64
 
 	listResult []entity.TrainingEnrollment
 	listErr    error
@@ -55,6 +64,22 @@ func (f *fakeTrainingEnrollmentRepository) CancelTrainingEnrollment(
 	return f.cancelErr
 }
 
+func (f *fakeTrainingEnrollmentRepository) UpdateTrainingEnrollmentStatus(
+	_ context.Context,
+	publicID string,
+	status entity.TrainingEnrollmentStatus,
+	now int64,
+) (entity.TrainingEnrollment, error) {
+	f.lastUpdateStatusPublicID = publicID
+	f.lastUpdateStatus = status
+	f.lastUpdateStatusAt = now
+	if f.updateStatusErr != nil {
+		return entity.TrainingEnrollment{}, f.updateStatusErr
+	}
+
+	return f.updateStatusResult, nil
+}
+
 func (f *fakeTrainingEnrollmentRepository) FindTrainingEnrollments(
 	_ context.Context,
 	filter entity.TrainingEnrollmentFilter,
@@ -71,6 +96,22 @@ func TestEnrollRejectsMissingIdentity(t *testing.T) {
 	_, err := uc.Enroll(context.Background(), usecase.CreateTrainingEnrollmentInput{CatalogPublicID: "YTP-000004"})
 	if !errors.Is(err, usecase.ErrForbidden) {
 		t.Fatalf("Enroll() error = %v, want ErrForbidden", err)
+	}
+	if repo.createCalls != 0 {
+		t.Errorf("create calls = %d, want 0", repo.createCalls)
+	}
+}
+
+func TestEnrollRejectsNonMemberRole(t *testing.T) {
+	repo := &fakeTrainingEnrollmentRepository{}
+	uc := usecase.NewTrainingEnrollmentUseCase(repo, &fakeTrainingCatalogRepository{})
+
+	_, err := uc.Enroll(context.Background(), usecase.CreateTrainingEnrollmentInput{
+		Actor:           adminActor(),
+		CatalogPublicID: "TCY-000004",
+	})
+	if !errors.Is(err, usecase.ErrBadRequest) {
+		t.Fatalf("Enroll() error = %v, want ErrBadRequest", err)
 	}
 	if repo.createCalls != 0 {
 		t.Errorf("create calls = %d, want 0", repo.createCalls)
@@ -110,8 +151,94 @@ func TestEnrollAssignsActorAndRegisterDate(t *testing.T) {
 	if repo.lastCreated.RegisterDate.Hour() != 0 || repo.lastCreated.RegisterDate.Minute() != 0 {
 		t.Errorf("register date = %v, want date-only", repo.lastCreated.RegisterDate)
 	}
-	if !publicIDPattern.MatchString(repo.lastCreated.PublicID) {
-		t.Errorf("public id = %q, want YTP- plus six digits", repo.lastCreated.PublicID)
+	if repo.lastCreated.Status != entity.TrainingEnrollmentStatusPending {
+		t.Errorf("status = %q, want pending", repo.lastCreated.Status)
+	}
+	if !trainingEnrollmentPublicIDPattern.MatchString(repo.lastCreated.PublicID) {
+		t.Errorf("public id = %q, want ENR- plus six digits", repo.lastCreated.PublicID)
+	}
+}
+
+func TestUpdateTrainingEnrollmentStatusRequiresAdmin(t *testing.T) {
+	repo := &fakeTrainingEnrollmentRepository{}
+	uc := usecase.NewTrainingEnrollmentUseCase(repo, &fakeTrainingCatalogRepository{})
+
+	_, err := uc.UpdateStatus(context.Background(), usecase.UpdateTrainingEnrollmentStatusInput{
+		Actor:    memberActor(),
+		PublicID: "YTP-000111",
+		Status:   "accepted",
+	})
+	if !errors.Is(err, usecase.ErrForbidden) {
+		t.Fatalf("UpdateStatus() error = %v, want ErrForbidden", err)
+	}
+}
+
+func TestUpdateTrainingEnrollmentStatusValidation(t *testing.T) {
+	repo := &fakeTrainingEnrollmentRepository{}
+	uc := usecase.NewTrainingEnrollmentUseCase(repo, &fakeTrainingCatalogRepository{})
+
+	cases := []struct {
+		name     string
+		publicID string
+		status   string
+	}{
+		{name: "empty public id", publicID: "", status: "accepted"},
+		{name: "empty status", publicID: "YTP-000111", status: ""},
+		{name: "invalid status", publicID: "YTP-000111", status: "bogus"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := uc.UpdateStatus(context.Background(), usecase.UpdateTrainingEnrollmentStatusInput{
+				Actor:    adminActor(),
+				PublicID: tc.publicID,
+				Status:   tc.status,
+			})
+			if !errors.Is(err, usecase.ErrBadRequest) {
+				t.Fatalf("UpdateStatus() error = %v, want ErrBadRequest", err)
+			}
+		})
+	}
+}
+
+func TestUpdateTrainingEnrollmentStatusSuccess(t *testing.T) {
+	cases := []struct {
+		inputStatus string
+		wantStatus  entity.TrainingEnrollmentStatus
+	}{
+		{inputStatus: " accepted ", wantStatus: entity.TrainingEnrollmentStatusAccepted},
+		{inputStatus: " cancelled ", wantStatus: entity.TrainingEnrollmentStatusCancelled},
+		{inputStatus: " canceled ", wantStatus: entity.TrainingEnrollmentStatusCancelled},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.inputStatus, func(t *testing.T) {
+			repo := &fakeTrainingEnrollmentRepository{
+				updateStatusResult: entity.TrainingEnrollment{
+					PublicID: "YTP-000111",
+					Status:   tc.wantStatus,
+				},
+			}
+			uc := usecase.NewTrainingEnrollmentUseCase(repo, &fakeTrainingCatalogRepository{})
+
+			updated, err := uc.UpdateStatus(context.Background(), usecase.UpdateTrainingEnrollmentStatusInput{
+				Actor:    adminActor(),
+				PublicID: " YTP-000111 ",
+				Status:   tc.inputStatus,
+			})
+			if err != nil {
+				t.Fatalf("UpdateStatus() error = %v", err)
+			}
+			if repo.lastUpdateStatusPublicID != "YTP-000111" {
+				t.Errorf("public id = %q, want YTP-000111", repo.lastUpdateStatusPublicID)
+			}
+			if repo.lastUpdateStatus != tc.wantStatus {
+				t.Errorf("status = %q, want %q", repo.lastUpdateStatus, tc.wantStatus)
+			}
+			if updated.Status != tc.wantStatus {
+				t.Errorf("updated status = %q, want %q", updated.Status, tc.wantStatus)
+			}
+		})
 	}
 }
 
@@ -201,34 +328,78 @@ func TestFindAllEnrollmentsRequiresAdmin(t *testing.T) {
 		t.Fatalf("member FindAllEnrollments() error = %v, want ErrForbidden", err)
 	}
 
-	if _, err := uc.FindAllEnrollments(context.Background(), usecase.FindTrainingEnrollmentsInput{Actor: adminActor()}); err != nil {
+	if _, err := uc.FindAllEnrollments(context.Background(), usecase.FindTrainingEnrollmentsInput{
+		Actor:  adminActor(),
+		Search: "  Budi  ",
+	}); err != nil {
 		t.Fatalf("admin FindAllEnrollments() error = %v", err)
 	}
 	if repo.lastFilter.UserID != 0 {
 		t.Errorf("admin user filter = %d, want 0 for unscoped", repo.lastFilter.UserID)
 	}
+	if repo.lastFilter.Search != "Budi" {
+		t.Errorf("admin search filter = %q, want Budi", repo.lastFilter.Search)
+	}
 }
 
 func TestFindCatalogEnrollmentsResolvesCatalogAndRequiresAdmin(t *testing.T) {
 	repo := &fakeTrainingEnrollmentRepository{}
-	catalogRepo := &fakeTrainingCatalogRepository{findResult: entity.TrainingCatalog{ID: 4, PublicID: "YTP-000004"}}
+	catalogRepo := &fakeTrainingCatalogRepository{findResult: entity.TrainingCatalog{ID: 4, PublicID: "TCY-000004"}}
 	uc := usecase.NewTrainingEnrollmentUseCase(repo, catalogRepo)
 
 	if _, err := uc.FindCatalogEnrollments(context.Background(), usecase.FindCatalogEnrollmentsInput{
 		Actor:           memberActor(),
-		CatalogPublicID: "YTP-000004",
+		CatalogPublicID: "TCY-000004",
 	}); !errors.Is(err, usecase.ErrForbidden) {
 		t.Fatalf("member FindCatalogEnrollments() error = %v, want ErrForbidden", err)
 	}
 
 	if _, err := uc.FindCatalogEnrollments(context.Background(), usecase.FindCatalogEnrollmentsInput{
 		Actor:           adminActor(),
-		CatalogPublicID: "YTP-000004",
+		CatalogPublicID: "TCY-000004",
+		Search:          "  Siti  ",
+		Status:          "accepted",
 	}); err != nil {
 		t.Fatalf("admin FindCatalogEnrollments() error = %v", err)
 	}
 	if repo.lastFilter.CatalogID != 4 {
 		t.Errorf("catalog filter = %d, want 4", repo.lastFilter.CatalogID)
+	}
+	if repo.lastFilter.Search != "Siti" {
+		t.Errorf("search filter = %q, want Siti", repo.lastFilter.Search)
+	}
+	if repo.lastFilter.Status != entity.TrainingEnrollmentStatusAccepted {
+		t.Errorf("status filter = %q, want accepted", repo.lastFilter.Status)
+	}
+
+	if _, err := uc.FindCatalogEnrollments(context.Background(), usecase.FindCatalogEnrollmentsInput{
+		Actor:           adminActor(),
+		CatalogPublicID: "TCY-000004",
+		Status:          "cancelled",
+	}); err != nil {
+		t.Fatalf("cancelled status filter error = %v", err)
+	}
+	if repo.lastFilter.Status != entity.TrainingEnrollmentStatusCancelled {
+		t.Errorf("status filter = %q, want cancelled", repo.lastFilter.Status)
+	}
+
+	if _, err := uc.FindCatalogEnrollments(context.Background(), usecase.FindCatalogEnrollmentsInput{
+		Actor:           adminActor(),
+		CatalogPublicID: "TCY-000004",
+		Status:          "canceled",
+	}); err != nil {
+		t.Fatalf("canceled alias status filter error = %v", err)
+	}
+	if repo.lastFilter.Status != entity.TrainingEnrollmentStatusCancelled {
+		t.Errorf("status filter = %q, want cancelled", repo.lastFilter.Status)
+	}
+
+	if _, err := uc.FindCatalogEnrollments(context.Background(), usecase.FindCatalogEnrollmentsInput{
+		Actor:           adminActor(),
+		CatalogPublicID: "YTP-000004",
+		Status:          "bogus",
+	}); !errors.Is(err, usecase.ErrBadRequest) {
+		t.Fatalf("invalid status error = %v, want ErrBadRequest", err)
 	}
 }
 
@@ -242,5 +413,15 @@ func TestFindCatalogEnrollmentsMapsMissingCatalog(t *testing.T) {
 	})
 	if !errors.Is(err, usecase.ErrTrainingCatalogNotFound) {
 		t.Fatalf("FindCatalogEnrollments() error = %v, want ErrTrainingCatalogNotFound", err)
+	}
+}
+
+func TestGenerateTrainingEnrollmentPublicID(t *testing.T) {
+	id, err := usecase.GenerateTrainingEnrollmentPublicID()
+	if err != nil {
+		t.Fatalf("GenerateTrainingEnrollmentPublicID() error = %v", err)
+	}
+	if !trainingEnrollmentPublicIDPattern.MatchString(id) {
+		t.Errorf("generated public id = %q, want matching %s", id, trainingEnrollmentPublicIDPattern.String())
 	}
 }

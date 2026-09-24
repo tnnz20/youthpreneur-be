@@ -68,6 +68,31 @@ func (h *TrainingEnrollmentHandler) Cancel(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// UpdateStatus handles PATCH /training-enrollments/{publicID}/status.
+func (h *TrainingEnrollmentHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
+	var request model.UpdateTrainingEnrollmentStatusRequest
+	if !h.decode(w, r, &request) {
+		return
+	}
+
+	actor, ok := h.actor(w, r)
+	if !ok {
+		return
+	}
+
+	enrollment, err := h.useCase.UpdateStatus(r.Context(), usecase.UpdateTrainingEnrollmentStatusInput{
+		Actor:    actor,
+		PublicID: r.PathValue("publicID"),
+		Status:   request.Status,
+	})
+	if err != nil {
+		h.writeUsecaseError(w, err)
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, model.ToTrainingEnrollmentResponse(enrollment))
+}
+
 // ListMine handles GET /training-enrollments/my.
 func (h *TrainingEnrollmentHandler) ListMine(w http.ResponseWriter, r *http.Request) {
 	actor, ok := h.actor(w, r)
@@ -122,9 +147,17 @@ func (h *TrainingEnrollmentHandler) ListByCatalog(w http.ResponseWriter, r *http
 		return
 	}
 
+	query := r.URL.Query()
+	search := query.Get("search")
+	if search == "" {
+		search = query.Get("q")
+	}
+
 	result, err := h.useCase.FindCatalogEnrollments(r.Context(), usecase.FindCatalogEnrollmentsInput{
 		Actor:           actor,
 		CatalogPublicID: r.PathValue("catalogPublicID"),
+		Search:          search,
+		Status:          query.Get("status"),
 		Cursor:          cursor,
 		Limit:           limit,
 	})
@@ -146,7 +179,19 @@ func (h *TrainingEnrollmentHandler) listInput(
 		return usecase.FindTrainingEnrollmentsInput{}, false
 	}
 
-	return usecase.FindTrainingEnrollmentsInput{Actor: actor, Cursor: cursor, Limit: limit}, true
+	query := r.URL.Query()
+	search := query.Get("search")
+	if search == "" {
+		search = query.Get("q")
+	}
+
+	return usecase.FindTrainingEnrollmentsInput{
+		Actor:  actor,
+		Search: search,
+		Status: query.Get("status"),
+		Cursor: cursor,
+		Limit:  limit,
+	}, true
 }
 
 func (h *TrainingEnrollmentHandler) paging(w http.ResponseWriter, r *http.Request) (int, int, bool) {

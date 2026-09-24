@@ -14,24 +14,39 @@ import (
 )
 
 const trainingCatalogColumns = `
-	c.id, c.public_id, c.name, c.description, c.pic_phone, c.category,
-	c.training_slots, c.training_status, c.link, c.training_date,
-	c.training_period, c.speaker, c.created_at, c.updated_at, c.deleted_at`
+	c.id, c.public_id, c.title, c.description, c.pic_phone, c.category,
+	c.max_slots, c.training_status, c.link, c.address, c.thumbnail, c.start_date,
+	c.end_date, c.mentor, c.created_at, c.updated_at, c.deleted_at, c.registered_count`
 
-// findTrainingCatalogsQuery applies optional filters. The enum parameter is
-// wrapped in NULLIF so an empty filter binds NULL instead of failing an enum
-// cast.
-const findTrainingCatalogsQuery = `
+// findTrainingCatalogsAscQuery applies optional filters with ascending order (oldest first).
+const findTrainingCatalogsAscQuery = `
 	SELECT ` + trainingCatalogColumns + `
 	FROM training_catalog c
 	WHERE c.deleted_at IS NULL
-	  AND ($1 = '' OR c.category = $1)
-	  AND ($2 = '' OR c.training_status = NULLIF($2, '')::process_status_enum)
-	  AND ($3::date IS NULL OR c.training_date = $3::date)
-	  AND ($4 = '' OR c.training_period = $4)
-	  AND ($5::int = 0 OR c.id > $5)
+	  AND ($1 = '' OR (COALESCE(c.title, '') ILIKE '%' || $1 || '%' OR COALESCE(c.mentor, '') ILIKE '%' || $1 || '%'))
+	  AND ($2 = '' OR COALESCE(c.title, '') ILIKE '%' || $2 || '%')
+	  AND ($3 = '' OR COALESCE(c.mentor, '') ILIKE '%' || $3 || '%')
+	  AND ($4 = '' OR c.category = NULLIF($4, '')::training_category_enum)
+	  AND ($5 = '' OR c.training_status = NULLIF($5, '')::process_status_enum)
+	  AND ($6::date IS NULL OR c.start_date = $6::date)
+	  AND ($7::int = 0 OR c.id > $7)
 	ORDER BY c.id ASC
-	LIMIT $6`
+	LIMIT $8`
+
+// findTrainingCatalogsDescQuery applies optional filters with descending order (newest first).
+const findTrainingCatalogsDescQuery = `
+	SELECT ` + trainingCatalogColumns + `
+	FROM training_catalog c
+	WHERE c.deleted_at IS NULL
+	  AND ($1 = '' OR (COALESCE(c.title, '') ILIKE '%' || $1 || '%' OR COALESCE(c.mentor, '') ILIKE '%' || $1 || '%'))
+	  AND ($2 = '' OR COALESCE(c.title, '') ILIKE '%' || $2 || '%')
+	  AND ($3 = '' OR COALESCE(c.mentor, '') ILIKE '%' || $3 || '%')
+	  AND ($4 = '' OR c.category = NULLIF($4, '')::training_category_enum)
+	  AND ($5 = '' OR c.training_status = NULLIF($5, '')::process_status_enum)
+	  AND ($6::date IS NULL OR c.start_date = $6::date)
+	  AND ($7::int = 0 OR c.id < $7)
+	ORDER BY c.id DESC
+	LIMIT $8`
 
 type trainingCatalogRepository struct {
 	db *sql.DB
@@ -49,24 +64,26 @@ func (r trainingCatalogRepository) CreateTrainingCatalog(
 ) (entity.TrainingCatalog, error) {
 	created, err := scanTrainingCatalog(r.db.QueryRowContext(ctx, `
 		INSERT INTO training_catalog AS c (
-			public_id, name, description, pic_phone, category, training_slots,
-			training_status, link, training_date, training_period, speaker,
+			public_id, title, description, pic_phone, category, max_slots,
+			training_status, link, address, thumbnail, start_date, end_date, mentor,
 			created_at, updated_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6,
-			NULLIF($7, '')::process_status_enum, $8, $9::date, $10, $11, $12, $13)
+		VALUES ($1, $2, $3, $4, NULLIF($5, '')::training_category_enum, $6,
+			NULLIF($7, '')::process_status_enum, $8, $9, $10, $11::date, $12::date, $13, $14, $15)
 		RETURNING `+trainingCatalogColumns,
 		catalog.PublicID,
-		nullString(catalog.Name),
+		nullString(catalog.Title),
 		nullString(catalog.Description),
 		nullString(catalog.PicPhone),
-		nullString(catalog.Category),
-		nullInt(catalog.TrainingSlots),
+		nullString(string(catalog.Category)),
+		nullInt(catalog.MaxSlots),
 		string(catalog.TrainingStatus),
 		nullString(catalog.Link),
-		nullTime(catalog.TrainingDate),
-		nullString(catalog.TrainingPeriod),
-		nullString(catalog.Speaker),
+		nullString(catalog.Address),
+		nullString(catalog.Thumbnail),
+		nullTime(catalog.StartDate),
+		nullTime(catalog.EndDate),
+		nullString(catalog.Mentor),
 		catalog.CreatedAt,
 		catalog.UpdatedAt,
 	).Scan)
@@ -103,11 +120,18 @@ func (r trainingCatalogRepository) FindTrainingCatalogs(
 	ctx context.Context,
 	filter entity.TrainingCatalogFilter,
 ) ([]entity.TrainingCatalog, error) {
-	rows, err := r.db.QueryContext(ctx, findTrainingCatalogsQuery,
-		filter.Category,
+	query := findTrainingCatalogsAscQuery
+	if strings.EqualFold(filter.Order, "desc") {
+		query = findTrainingCatalogsDescQuery
+	}
+
+	rows, err := r.db.QueryContext(ctx, query,
+		filter.Search,
+		filter.Title,
+		filter.Mentor,
+		string(filter.Category),
 		string(filter.TrainingStatus),
-		nullTime(filter.TrainingDate),
-		filter.TrainingPeriod,
+		nullTime(filter.StartDate),
 		filter.Cursor,
 		filter.Limit,
 	)
@@ -158,33 +182,40 @@ func (r trainingCatalogRepository) UpdateTrainingCatalog(
 	}
 
 	merged := applyTrainingCatalogUpdate(locked, update)
+	if merged.StartDate != nil && merged.EndDate != nil && merged.EndDate.Before(*merged.StartDate) {
+		return entity.TrainingCatalog{}, repository.ErrInvalidTrainingCatalogDateRange
+	}
 
 	updated, err := scanTrainingCatalog(tx.QueryRowContext(ctx, `
 		UPDATE training_catalog c
-		SET name = $2,
+		SET title = $2,
 		    description = $3,
 		    pic_phone = $4,
-		    category = $5,
-		    training_slots = $6,
+		    category = NULLIF($5, '')::training_category_enum,
+		    max_slots = $6,
 		    training_status = NULLIF($7, '')::process_status_enum,
 		    link = $8,
-		    training_date = $9::date,
-		    training_period = $10,
-		    speaker = $11,
-		    updated_at = $12
+		    address = $9,
+		    thumbnail = $10,
+		    start_date = $11::date,
+		    end_date = $12::date,
+		    mentor = $13,
+		    updated_at = $14
 		WHERE c.public_id = $1 AND c.deleted_at IS NULL
 		RETURNING `+trainingCatalogColumns,
 		publicID,
-		nullString(merged.Name),
+		nullString(merged.Title),
 		nullString(merged.Description),
 		nullString(merged.PicPhone),
-		nullString(merged.Category),
-		nullInt(merged.TrainingSlots),
+		nullString(string(merged.Category)),
+		nullInt(merged.MaxSlots),
 		string(merged.TrainingStatus),
 		nullString(merged.Link),
-		nullTime(merged.TrainingDate),
-		nullString(merged.TrainingPeriod),
-		nullString(merged.Speaker),
+		nullString(merged.Address),
+		nullString(merged.Thumbnail),
+		nullTime(merged.StartDate),
+		nullTime(merged.EndDate),
+		nullString(merged.Mentor),
 		merged.UpdatedAt,
 	).Scan)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -223,9 +254,6 @@ func (r trainingCatalogRepository) SoftDeleteTrainingCatalog(
 	return nil
 }
 
-// applyTrainingCatalogUpdate merges an optional field update into the locked
-// row. A nil pointer keeps the current value and an empty string clears a
-// nullable string.
 func applyTrainingCatalogUpdate(
 	locked entity.TrainingCatalog,
 	update entity.TrainingCatalogUpdate,
@@ -233,8 +261,8 @@ func applyTrainingCatalogUpdate(
 	merged := locked
 	merged.UpdatedAt = update.UpdatedAt
 
-	if update.Name != nil {
-		merged.Name = *update.Name
+	if update.Title != nil {
+		merged.Title = *update.Title
 	}
 	if update.Description != nil {
 		merged.Description = *update.Description
@@ -245,8 +273,8 @@ func applyTrainingCatalogUpdate(
 	if update.Category != nil {
 		merged.Category = *update.Category
 	}
-	if update.TrainingSlots != nil {
-		merged.TrainingSlots = update.TrainingSlots
+	if update.MaxSlots != nil {
+		merged.MaxSlots = update.MaxSlots
 	}
 	if update.TrainingStatus != nil {
 		merged.TrainingStatus = *update.TrainingStatus
@@ -254,80 +282,92 @@ func applyTrainingCatalogUpdate(
 	if update.Link != nil {
 		merged.Link = *update.Link
 	}
-	if update.TrainingDate != nil {
-		merged.TrainingDate = update.TrainingDate
+	if update.Address != nil {
+		merged.Address = *update.Address
 	}
-	if update.TrainingPeriod != nil {
-		merged.TrainingPeriod = *update.TrainingPeriod
+	if update.Thumbnail != nil {
+		merged.Thumbnail = *update.Thumbnail
 	}
-	if update.Speaker != nil {
-		merged.Speaker = *update.Speaker
+	if update.StartDate != nil {
+		merged.StartDate = update.StartDate
+	}
+	if update.EndDate != nil {
+		merged.EndDate = update.EndDate
+	}
+	if update.Mentor != nil {
+		merged.Mentor = *update.Mentor
 	}
 
 	return merged
 }
 
-// trainingCatalogRow holds the nullable scan targets for trainingCatalogColumns.
-// Direct catalog reads and joined enrollment reads both use it so the
-// column-to-field mapping lives in one place.
 type trainingCatalogRow struct {
-	catalog                               entity.TrainingCatalog
-	name, description, picPhone, category sql.NullString
-	trainingSlots                         sql.NullInt64
-	trainingStatus, link                  sql.NullString
-	trainingDate                          sql.NullTime
-	trainingPeriod, speaker               sql.NullString
-	deletedAt                             sql.NullInt64
+	catalog                      entity.TrainingCatalog
+	title, description, picPhone sql.NullString
+	category                     sql.NullString
+	maxSlots                     sql.NullInt64
+	trainingStatus, link         sql.NullString
+	address, thumbnail           sql.NullString
+	startDate, endDate           sql.NullTime
+	mentor                       sql.NullString
+	deletedAt                    sql.NullInt64
+	registeredCount              sql.NullInt64
 }
 
-// scanDest returns the scan destinations for trainingCatalogColumns in order.
 func (row *trainingCatalogRow) scanDest() []any {
 	return []any{
 		&row.catalog.ID,
 		&row.catalog.PublicID,
-		&row.name,
+		&row.title,
 		&row.description,
 		&row.picPhone,
 		&row.category,
-		&row.trainingSlots,
+		&row.maxSlots,
 		&row.trainingStatus,
 		&row.link,
-		&row.trainingDate,
-		&row.trainingPeriod,
-		&row.speaker,
+		&row.address,
+		&row.thumbnail,
+		&row.startDate,
+		&row.endDate,
+		&row.mentor,
 		&row.catalog.CreatedAt,
 		&row.catalog.UpdatedAt,
 		&row.deletedAt,
+		&row.registeredCount,
 	}
 }
 
-// toCatalog converts the gathered nullable values into the catalog entity.
 func (row *trainingCatalogRow) toCatalog() entity.TrainingCatalog {
 	catalog := row.catalog
-	catalog.Name = row.name.String
+	catalog.Title = row.title.String
 	catalog.Description = row.description.String
 	catalog.PicPhone = row.picPhone.String
-	catalog.Category = row.category.String
-	if row.trainingSlots.Valid {
-		slots := int(row.trainingSlots.Int64)
-		catalog.TrainingSlots = &slots
+	catalog.Category = entity.TrainingCategory(row.category.String)
+	if row.maxSlots.Valid {
+		slots := int(row.maxSlots.Int64)
+		catalog.MaxSlots = &slots
 	}
 	catalog.TrainingStatus = entity.ProcessStatus(row.trainingStatus.String)
 	catalog.Link = row.link.String
-	if row.trainingDate.Valid {
-		catalog.TrainingDate = &row.trainingDate.Time
+	catalog.Address = row.address.String
+	catalog.Thumbnail = row.thumbnail.String
+	if row.startDate.Valid {
+		catalog.StartDate = &row.startDate.Time
 	}
-	catalog.TrainingPeriod = row.trainingPeriod.String
-	catalog.Speaker = row.speaker.String
+	if row.endDate.Valid {
+		catalog.EndDate = &row.endDate.Time
+	}
+	catalog.Mentor = row.mentor.String
 	if row.deletedAt.Valid {
 		catalog.DeletedAt = &row.deletedAt.Int64
+	}
+	if row.registeredCount.Valid {
+		catalog.RegisteredCount = int(row.registeredCount.Int64)
 	}
 
 	return catalog
 }
 
-// scanTrainingCatalog maps one catalog row. scan is sql.Row.Scan or
-// sql.Rows.Scan.
 func scanTrainingCatalog(scan func(dest ...any) error) (entity.TrainingCatalog, error) {
 	var row trainingCatalogRow
 	if err := scan(row.scanDest()...); err != nil {
@@ -337,8 +377,6 @@ func scanTrainingCatalog(scan func(dest ...any) error) (entity.TrainingCatalog, 
 	return row.toCatalog(), nil
 }
 
-// mapTrainingCatalogInsertError translates a unique public id violation into a
-// repository sentinel error so the usecase can retry generation.
 func mapTrainingCatalogInsertError(err error) error {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == uniqueViolation &&
@@ -349,8 +387,6 @@ func mapTrainingCatalogInsertError(err error) error {
 	return fmt.Errorf("insert training catalog: %w", err)
 }
 
-// requireTrainingCatalogAffected turns an update with no matching active row
-// into ErrTrainingCatalogNotFound.
 func requireTrainingCatalogAffected(result sql.Result) error {
 	affected, err := result.RowsAffected()
 	if err != nil {
@@ -363,7 +399,6 @@ func requireTrainingCatalogAffected(result sql.Result) error {
 	return nil
 }
 
-// nullInt returns nil for a nil pointer so an unset capacity is stored as NULL.
 func nullInt(value *int) any {
 	if value == nil {
 		return nil
