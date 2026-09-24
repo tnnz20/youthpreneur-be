@@ -225,8 +225,6 @@ func (r trainingCatalogRepository) UpdateTrainingCatalog(
 		return entity.TrainingCatalog{}, fmt.Errorf("update training catalog: %w", err)
 	}
 
-	updated.RegisteredCount = locked.RegisteredCount
-
 	if err := tx.Commit(); err != nil {
 		return entity.TrainingCatalog{}, fmt.Errorf("commit transaction: %w", err)
 	}

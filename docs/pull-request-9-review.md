@@ -137,7 +137,7 @@ updated.RegisteredCount = locked.RegisteredCount // <--- Redundant
 
 ## 6. Recommendations & Actionable Suggestions
 
-1. **(Optional Polish)** In `internal/repository/persistence/training_catalog_postgres.go:228`, the redundant `updated.RegisteredCount = locked.RegisteredCount` line can eventually be removed.
+1. **(Resolved)** Removed the redundant `updated.RegisteredCount = locked.RegisteredCount` line in `training_catalog_postgres.go`.
 2. **(Observation)** If the product team ever desires that rejected participants be allowed to re-apply to the same training catalog, the rejection flow could set `deleted_at = now` (similar to cancellation). As implemented today, rejected users remain barred from re-applying, which is typically the desired administrative behavior.
 
 ---
