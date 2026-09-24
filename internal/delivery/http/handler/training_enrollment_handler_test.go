@@ -238,6 +238,20 @@ func TestListMyEnrollmentsParsesPagingAndReturnsCursor(t *testing.T) {
 	}
 }
 
+func TestListMyEnrollmentsPassesStatus(t *testing.T) {
+	uc := &fakeTrainingEnrollmentUseCase{}
+
+	rec := serve(t, newTrainingEnrollmentRouter(uc, enterpriseIdentity(entity.User{ID: 7, Role: entity.RoleMember})),
+		http.MethodGet, "/training-enrollments/my?status=cancelled&search=Budi", "")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body %s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if uc.lastMyInput.Actor.ID != 7 || uc.lastMyInput.Status != "cancelled" || uc.lastMyInput.Search != "Budi" {
+		t.Errorf("my input = %+v, want actor 7 status cancelled search Budi", uc.lastMyInput)
+	}
+}
+
 func TestListCatalogEnrollmentsPassesCatalogPublicID(t *testing.T) {
 	uc := &fakeTrainingEnrollmentUseCase{}
 

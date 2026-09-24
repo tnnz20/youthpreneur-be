@@ -354,6 +354,9 @@ func TestTrainingEnrollmentRepositoryIntegration(t *testing.T) {
 	if history[0].DeletedAt == nil {
 		t.Error("cancelled enrollment deleted_at = nil, want preserved cancellation")
 	}
+	if history[0].Status != entity.TrainingEnrollmentStatusCancelled {
+		t.Errorf("cancelled enrollment status = %q, want %q", history[0].Status, entity.TrainingEnrollmentStatusCancelled)
+	}
 	if history[0].Catalog == nil {
 		t.Error("cancelled enrollment catalog = nil, want joined history")
 	}

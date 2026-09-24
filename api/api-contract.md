@@ -1310,7 +1310,7 @@ soft deleted.
 
 ### 29. Update Training Enrollment Status
 
-Update an enrollment's approval status (`pending`, `accepted`, `rejected`).
+Update an enrollment's approval status (`pending`, `accepted`, `rejected`, `cancelled`).
 When updated to `accepted`, the catalog's `registered_count` increases by 1.
 If the catalog has reached `max_slots`, transition to `accepted` fails with `409 Conflict`.
 
@@ -1322,7 +1322,7 @@ If the catalog has reached `max_slots`, transition to `accepted` fails with `409
 
 | Field | Type | Required | Format | Notes |
 | --- | --- | --- | --- | --- |
-| `status` | string | ✓ | `pending`, `accepted`, or `rejected` | Required |
+| `status` | string | ✓ | `pending`, `accepted`, `rejected`, or `cancelled` | Required |
 
 **Request Example:**
 
@@ -1350,9 +1350,9 @@ Cancel the caller's active enrollment.
 **Authentication:** Authenticated; owner or admin. A member receives `404` for
 an enrollment they do not own.
 
-The server sets `deleted_at` and `updated_at` to the same Unix epoch-second
-value. The row is retained so enrollment history survives, and the user may
-enroll again afterward.
+The server sets `status` to `cancelled`, and sets `deleted_at` and `updated_at`
+to the same Unix epoch-second value. The row is retained so enrollment history
+survives, and the user may enroll again afterward.
 
 **Status Code:** `204 No Content`
 
@@ -1368,7 +1368,7 @@ List the current user's enrollment history, including cancelled enrollments.
 
 **Authentication:** Authenticated.
 
-**Query Parameters:** `cursor` and `limit` as described for catalog listing, optional `search`/`q` to filter by participant full name, and optional `status` (`pending`, `accepted`, `rejected`).
+**Query Parameters:** `cursor` and `limit` as described for catalog listing, optional `search`/`q` to filter by participant full name, and optional `status` (`pending`, `accepted`, `rejected`, `cancelled`).
 
 **Response:**
 
@@ -1408,7 +1408,7 @@ List every user's enrollment history, including cancelled enrollments.
 
 **Authentication:** Admin.
 
-**Query Parameters:** `cursor` and `limit` as described for catalog listing, optional `search`/`q` to filter by participant full name, and optional `status` (`pending`, `accepted`, `rejected`).
+**Query Parameters:** `cursor` and `limit` as described for catalog listing, optional `search`/`q` to filter by participant full name, and optional `status` (`pending`, `accepted`, `rejected`, `cancelled`).
 
 **Response:** The enrollment page shown for `/training-enrollments/my`.
 
@@ -1427,7 +1427,7 @@ List one catalog's enrollment history, including cancelled enrollments.
 
 **Authentication:** Admin.
 
-**Query Parameters:** `cursor` and `limit` as described for catalog listing, optional `search`/`q` to filter by participant full name, and optional `status` (`pending`, `accepted`, `rejected`).
+**Query Parameters:** `cursor` and `limit` as described for catalog listing, optional `search`/`q` to filter by participant full name, and optional `status` (`pending`, `accepted`, `rejected`, `cancelled`).
 
 **Response:** The enrollment page shown for `/training-enrollments/my`.
 
@@ -1502,11 +1502,11 @@ Request bodies are limited to 1 MiB. Unknown JSON fields are currently ignored.
   `process_status_enum`; enrollment creation reserves capacity while the status
   is `planned` or `ongoing`.
 - Enrollment `register_date` is server-derived from the current date. Initial enrollment
-  status is `pending`; admins may update status to `accepted` or `rejected` via
+  status is `pending`; admins may update status to `accepted`, `rejected`, or `cancelled` via
   `PATCH /training-enrollments/{publicID}/status`.
 - `registered_count` is dynamically calculated from active enrollments with `status = 'accepted'`.
   When an enrollment is updated to `accepted`, `registered_count` increments by 1.
-- Enrollment cancellation is a soft delete that preserves history, and the
+- Enrollment cancellation sets `status = 'cancelled'` and `deleted_at`, preserving history, and the
   active uniqueness index allows re-enrollment after cancellation.
 - Thumbnail uploads accept PNG, JPG, and JPEG images up to 5 MiB, saved to
   `UPLOAD_DIR/thumbnails` and served via `GET /uploads/*`.
@@ -1515,7 +1515,7 @@ Request bodies are limited to 1 MiB. Unknown JSON fields are currently ignored.
   `training_period`, adds `address` (TEXT), `thumbnail` (VARCHAR(255)), `start_date` (DATE),
   `end_date` (DATE), creates `training_category_enum` (`'Wirausaha & Agribisnis'`,
   `'Kriya & Kreativitas'`, `'Digital & IPTEK'`, `'Olahraga & Prestasi'`, `'Komunitas & Pemuda'`),
-  and adds `status` (`training_enrollment_status_enum`: `'pending'`, `'accepted'`, `'rejected'`, default `'pending'`)
+  and adds `status` (`training_enrollment_status_enum`: `'pending'`, `'accepted'`, `'rejected'`, `'cancelled'`, default `'pending'`)
   to `training_enrollments`.
 
 ---

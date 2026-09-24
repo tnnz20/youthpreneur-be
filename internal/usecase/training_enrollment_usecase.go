@@ -209,8 +209,8 @@ func (u trainingEnrollmentUsecase) UpdateStatus(
 		return entity.TrainingEnrollment{}, badRequest("public_id is required")
 	}
 
-	status := entity.TrainingEnrollmentStatus(strings.TrimSpace(input.Status))
-	if !entity.ValidTrainingEnrollmentStatus(status) {
+	status, err := normalizeEnrollmentStatus(input.Status)
+	if err != nil || status == "" {
 		return entity.TrainingEnrollment{}, badRequest("invalid training enrollment status")
 	}
 
@@ -296,9 +296,12 @@ func (u trainingEnrollmentUsecase) FindCatalogEnrollments(
 }
 
 func normalizeEnrollmentStatus(raw string) (entity.TrainingEnrollmentStatus, error) {
-	trimmed := strings.TrimSpace(raw)
+	trimmed := strings.ToLower(strings.TrimSpace(raw))
 	if trimmed == "" {
 		return "", nil
+	}
+	if trimmed == "canceled" {
+		trimmed = "cancelled"
 	}
 	status := entity.TrainingEnrollmentStatus(trimmed)
 	if !entity.ValidTrainingEnrollmentStatus(status) {

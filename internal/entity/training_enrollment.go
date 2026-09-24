@@ -6,9 +6,11 @@ import "time"
 type TrainingEnrollmentStatus string
 
 const (
-	TrainingEnrollmentStatusPending  TrainingEnrollmentStatus = "pending"
-	TrainingEnrollmentStatusAccepted TrainingEnrollmentStatus = "accepted"
-	TrainingEnrollmentStatusRejected TrainingEnrollmentStatus = "rejected"
+	TrainingEnrollmentStatusPending   TrainingEnrollmentStatus = "pending"
+	TrainingEnrollmentStatusAccepted  TrainingEnrollmentStatus = "accepted"
+	TrainingEnrollmentStatusRejected  TrainingEnrollmentStatus = "rejected"
+	TrainingEnrollmentStatusCancelled TrainingEnrollmentStatus = "cancelled"
+	TrainingEnrollmentStatusCanceled  TrainingEnrollmentStatus = "cancelled"
 )
 
 // ValidTrainingEnrollmentStatus reports whether status is a known status.
@@ -16,7 +18,8 @@ func ValidTrainingEnrollmentStatus(status TrainingEnrollmentStatus) bool {
 	switch status {
 	case TrainingEnrollmentStatusPending,
 		TrainingEnrollmentStatusAccepted,
-		TrainingEnrollmentStatusRejected:
+		TrainingEnrollmentStatusRejected,
+		TrainingEnrollmentStatusCancelled:
 		return true
 	default:
 		return false
@@ -24,9 +27,9 @@ func ValidTrainingEnrollmentStatus(status TrainingEnrollmentStatus) bool {
 }
 
 // TrainingEnrollment links a user to a training catalog offering. Cancellation
-// sets DeletedAt and keeps the row so enrollment history survives; a member may
-// enroll again afterward. UserPublicID and Catalog are populated by joined
-// reads for API responses.
+// sets Status to cancelled and sets DeletedAt so enrollment history survives;
+// a member may enroll again afterward. UserPublicID and Catalog are populated by
+// joined reads for API responses.
 type TrainingEnrollment struct {
 	ID                int
 	PublicID          string

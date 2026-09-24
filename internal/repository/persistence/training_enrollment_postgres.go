@@ -92,7 +92,7 @@ func (r trainingEnrollmentRepository) CreateTrainingEnrollment(
 		if err := tx.QueryRowContext(ctx, `
 			SELECT COUNT(*)
 			FROM training_enrollments
-			WHERE training_catalog_id = $1 AND deleted_at IS NULL AND status != 'rejected'`,
+			WHERE training_catalog_id = $1 AND deleted_at IS NULL AND status != 'rejected' AND status != 'cancelled'`,
 			catalog.ID,
 		).Scan(&active); err != nil {
 			return entity.TrainingEnrollment{}, fmt.Errorf("count active enrollments: %w", err)
@@ -208,7 +208,9 @@ func (r trainingEnrollmentRepository) UpdateTrainingEnrollmentStatus(
 
 	result, err := tx.ExecContext(ctx, `
 		UPDATE training_enrollments
-		SET status = $2::training_enrollment_status_enum, updated_at = $3
+		SET status = $2::training_enrollment_status_enum,
+		    updated_at = $3,
+		    deleted_at = CASE WHEN $2 = 'cancelled' THEN COALESCE(deleted_at, $3) ELSE deleted_at END
 		WHERE public_id = $1 AND deleted_at IS NULL`,
 		publicID,
 		string(status),
@@ -255,26 +257,36 @@ func (r trainingEnrollmentRepository) CancelTrainingEnrollment(
 
 	var (
 		catalogID int
-		status    string
+		oldStatus string
 	)
 	err = tx.QueryRowContext(ctx, `
-		UPDATE training_enrollments
-		SET deleted_at = $3, updated_at = $3
-		WHERE public_id = $1 AND deleted_at IS NULL
-		  AND ($2::int = 0 OR user_id = $2)
-		RETURNING training_catalog_id, status`,
+		SELECT e.training_catalog_id, e.status
+		FROM training_enrollments e
+		WHERE e.public_id = $1 AND e.deleted_at IS NULL
+		  AND ($2::int = 0 OR e.user_id = $2)
+		FOR UPDATE`,
 		publicID,
 		userID,
-		deletedAt,
-	).Scan(&catalogID, &status)
+	).Scan(&catalogID, &oldStatus)
 	if errors.Is(err, sql.ErrNoRows) {
 		return repository.ErrTrainingEnrollmentNotFound
 	}
 	if err != nil {
+		return fmt.Errorf("lock training enrollment for cancel: %w", err)
+	}
+
+	_, err = tx.ExecContext(ctx, `
+		UPDATE training_enrollments
+		SET status = 'cancelled'::training_enrollment_status_enum, deleted_at = $2, updated_at = $2
+		WHERE public_id = $1`,
+		publicID,
+		deletedAt,
+	)
+	if err != nil {
 		return fmt.Errorf("cancel training enrollment: %w", err)
 	}
 
-	if status == string(entity.TrainingEnrollmentStatusAccepted) {
+	if oldStatus == string(entity.TrainingEnrollmentStatusAccepted) {
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE training_catalog
 			SET registered_count = GREATEST(0, registered_count - 1), updated_at = $2

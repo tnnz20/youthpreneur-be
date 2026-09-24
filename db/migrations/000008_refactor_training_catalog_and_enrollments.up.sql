@@ -9,7 +9,8 @@ CREATE TYPE training_category_enum AS ENUM (
 CREATE TYPE training_enrollment_status_enum AS ENUM (
     'pending',
     'accepted',
-    'rejected'
+    'rejected',
+    'cancelled'
 );
 
 -- Refactor training_catalog columns
@@ -75,4 +76,4 @@ SET registered_count = COALESCE((
       AND e.status = 'accepted'
 ), 0);
 CREATE INDEX idx_training_enrollments_status ON training_enrollments (status);
-COMMENT ON COLUMN training_enrollments.status IS 'Approval status: pending, accepted, or rejected.';
+COMMENT ON COLUMN training_enrollments.status IS 'Approval status: pending, accepted, rejected, or cancelled.';
