@@ -29,3 +29,6 @@ go.work.sum
 .DS_Store
 # Runtime local uploads and scratch files
 var/
+
+# External seed files
+db/seeds/external/
