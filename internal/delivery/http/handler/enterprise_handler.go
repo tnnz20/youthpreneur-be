@@ -290,7 +290,7 @@ func (h *EnterpriseHandler) actor(w http.ResponseWriter, r *http.Request) (entit
 }
 
 func (h *EnterpriseHandler) decode(w http.ResponseWriter, r *http.Request, target any) bool {
-	return decodeJSON(w, r, target)
+	return decodeJSON(h.logger, w, r, target)
 }
 
 func (h *EnterpriseHandler) writeJSON(w http.ResponseWriter, status int, payload any) {
@@ -302,6 +302,9 @@ func (h *EnterpriseHandler) writeError(w http.ResponseWriter, status int, messag
 }
 
 func (h *EnterpriseHandler) writeUsecaseError(w http.ResponseWriter, err error) {
+	if h.logger != nil {
+		h.logger.Debug("enterprise usecase error", "error", err)
+	}
 	switch {
 	case errors.Is(err, usecase.ErrBadRequest):
 		message := "invalid request"

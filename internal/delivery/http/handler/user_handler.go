@@ -201,7 +201,7 @@ func (h *UserHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *UserHandler) decode(w http.ResponseWriter, r *http.Request, target any) bool {
-	return decodeJSON(w, r, target)
+	return decodeJSON(h.logger, w, r, target)
 }
 
 func (h *UserHandler) writeJSON(w http.ResponseWriter, status int, payload any) {
@@ -213,6 +213,9 @@ func (h *UserHandler) writeError(w http.ResponseWriter, status int, message stri
 }
 
 func (h *UserHandler) writeUsecaseError(w http.ResponseWriter, err error) {
+	if h.logger != nil {
+		h.logger.Debug("user usecase error", "error", err)
+	}
 	switch {
 	case errors.Is(err, usecase.ErrBadRequest):
 		// Surface only the client-safe validation message; the internal

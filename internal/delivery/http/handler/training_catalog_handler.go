@@ -207,6 +207,9 @@ func (h *TrainingCatalogHandler) UploadThumbnail(w http.ResponseWriter, r *http.
 
 	url, err := h.uploadService.SaveThumbnail(file, header.Size)
 	if err != nil {
+		if h.logger != nil {
+			h.logger.Debug("thumbnail upload error", "error", err)
+		}
 		switch {
 		case errors.Is(err, service.ErrInvalidFileType):
 			h.writeError(w, http.StatusBadRequest, "invalid file type: only PNG, JPG, and JPEG are allowed")
@@ -248,7 +251,7 @@ func (h *TrainingCatalogHandler) actor(w http.ResponseWriter, r *http.Request) (
 }
 
 func (h *TrainingCatalogHandler) decode(w http.ResponseWriter, r *http.Request, target any) bool {
-	return decodeJSON(w, r, target)
+	return decodeJSON(h.logger, w, r, target)
 }
 
 func (h *TrainingCatalogHandler) writeJSON(w http.ResponseWriter, status int, payload any) {
@@ -260,6 +263,9 @@ func (h *TrainingCatalogHandler) writeError(w http.ResponseWriter, status int, m
 }
 
 func (h *TrainingCatalogHandler) writeUsecaseError(w http.ResponseWriter, err error) {
+	if h.logger != nil {
+		h.logger.Debug("training catalog usecase error", "error", err)
+	}
 	switch {
 	case errors.Is(err, usecase.ErrBadRequest):
 		message := "invalid request"

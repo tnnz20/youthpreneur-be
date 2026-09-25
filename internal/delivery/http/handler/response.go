@@ -13,10 +13,13 @@ const maxBodyBytes = 1 << 20
 
 // decodeJSON reads one JSON object from the request body, writing a 400 and
 // returning false when decoding fails or the body exceeds maxBodyBytes.
-func decodeJSON(w http.ResponseWriter, r *http.Request, target any) bool {
+func decodeJSON(logger *slog.Logger, w http.ResponseWriter, r *http.Request, target any) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	if err := json.NewDecoder(r.Body).Decode(target); err != nil {
-		WriteError(nil, w, http.StatusBadRequest, "invalid request body")
+		if logger != nil {
+			logger.Debug("failed to decode request body", "error", err)
+		}
+		WriteError(logger, w, http.StatusBadRequest, "invalid request body")
 		return false
 	}
 
@@ -36,5 +39,8 @@ func writeJSON(logger *slog.Logger, w http.ResponseWriter, status int, payload a
 // WriteError encodes the standard error body. It is exported so middleware can
 // share the same response shape without duplicating it.
 func WriteError(logger *slog.Logger, w http.ResponseWriter, status int, message string) {
+	if status < http.StatusInternalServerError && logger != nil {
+		logger.Debug("client error response", "status", status, "message", message)
+	}
 	writeJSON(logger, w, status, model.ErrorResponse{Error: message})
 }

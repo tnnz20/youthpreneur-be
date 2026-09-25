@@ -43,7 +43,7 @@ func NewAuthHandler(
 // Login handles POST /auth/login.
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var request model.LoginRequest
-	if !decodeJSON(w, r, &request) {
+	if !decodeJSON(h.logger, w, r, &request) {
 		return
 	}
 
@@ -66,6 +66,9 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	identity, ok := h.identity(r.Context())
 	if !ok {
+		if h.logger != nil {
+			h.logger.Debug("me rejected: missing identity in context")
+		}
 		WriteError(h.logger, w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
@@ -77,6 +80,9 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie(RefreshTokenCookie)
 	if err != nil {
+		if h.logger != nil {
+			h.logger.Debug("refresh rejected: missing refresh token cookie", "error", err)
+		}
 		WriteError(h.logger, w, http.StatusUnauthorized, "invalid refresh token")
 		return
 	}
@@ -149,6 +155,9 @@ func (h *AuthHandler) clearCookie(w http.ResponseWriter, name, path string) {
 }
 
 func (h *AuthHandler) writeUsecaseError(w http.ResponseWriter, err error) {
+	if h.logger != nil {
+		h.logger.Debug("auth usecase error", "error", err)
+	}
 	switch {
 	case errors.Is(err, usecase.ErrBadRequest):
 		message := "invalid request"

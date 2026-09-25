@@ -232,7 +232,7 @@ func (h *TrainingEnrollmentHandler) actor(w http.ResponseWriter, r *http.Request
 }
 
 func (h *TrainingEnrollmentHandler) decode(w http.ResponseWriter, r *http.Request, target any) bool {
-	return decodeJSON(w, r, target)
+	return decodeJSON(h.logger, w, r, target)
 }
 
 func (h *TrainingEnrollmentHandler) writeJSON(w http.ResponseWriter, status int, payload any) {
@@ -244,6 +244,9 @@ func (h *TrainingEnrollmentHandler) writeError(w http.ResponseWriter, status int
 }
 
 func (h *TrainingEnrollmentHandler) writeUsecaseError(w http.ResponseWriter, err error) {
+	if h.logger != nil {
+		h.logger.Debug("training enrollment usecase error", "error", err)
+	}
 	switch {
 	case errors.Is(err, usecase.ErrBadRequest):
 		message := "invalid request"

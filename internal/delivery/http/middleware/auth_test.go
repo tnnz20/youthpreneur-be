@@ -1,10 +1,12 @@
 package middleware_test
 
 import (
+	"bytes"
 	"context"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/tnnz20/youthpreneur-be/internal/delivery/http/handler"
@@ -274,5 +276,25 @@ func TestRequireSelf(t *testing.T) {
 				t.Fatalf("status = %d, want %d", rec.Code, tc.want)
 			}
 		})
+	}
+}
+
+func TestAuthenticateLogsDebugOnRejection(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	auth := middleware.NewAuthenticator(fakeParser{}, fakeLookup{}, logger)
+	next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
+
+	rec := authRequest(t, auth.Authenticate(next), "", "")
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+
+	raw := buf.String()
+	if !strings.Contains(raw, "auth rejected: missing access token cookie") {
+		t.Errorf("expected debug log about missing cookie, got %s", raw)
+	}
+	if !strings.Contains(raw, "client error response") {
+		t.Errorf("expected debug log about client error response, got %s", raw)
 	}
 }

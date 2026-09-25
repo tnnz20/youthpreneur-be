@@ -69,25 +69,38 @@ func (a *Authenticator) Authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie(handler.AccessTokenCookie)
 		if err != nil {
+			if a.logger != nil {
+				a.logger.Debug("auth rejected: missing access token cookie", "error", err)
+			}
 			handler.WriteError(a.logger, w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
 
 		claims, err := a.tokens.ParseAccess(cookie.Value)
 		if err != nil {
+			if a.logger != nil {
+				a.logger.Debug("auth rejected: invalid or expired access token", "error", err)
+			}
 			handler.WriteError(a.logger, w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
 
 		user, err := a.users.FindUserByPublicID(r.Context(), claims.PublicID)
 		if err != nil {
-			if !errors.Is(err, repository.ErrUserNotFound) {
+			if errors.Is(err, repository.ErrUserNotFound) {
+				if a.logger != nil {
+					a.logger.Debug("auth rejected: user not found", "public_id", claims.PublicID)
+				}
+			} else if a.logger != nil {
 				a.logger.Error("loading authenticated user", "error", err)
 			}
 			handler.WriteError(a.logger, w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
 		if !user.IsActive {
+			if a.logger != nil {
+				a.logger.Debug("auth rejected: user is inactive", "public_id", claims.PublicID)
+			}
 			handler.WriteError(a.logger, w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
@@ -105,10 +118,16 @@ func (a *Authenticator) RequireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		identity, ok := IdentityFromContext(r.Context())
 		if !ok {
+			if a.logger != nil {
+				a.logger.Debug("require admin rejected: missing identity in context")
+			}
 			handler.WriteError(a.logger, w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
 		if identity.Role != entity.RoleAdmin {
+			if a.logger != nil {
+				a.logger.Debug("require admin rejected: user is not admin", "role", identity.Role, "public_id", identity.PublicID)
+			}
 			handler.WriteError(a.logger, w, http.StatusForbidden, "forbidden")
 			return
 		}
@@ -124,6 +143,9 @@ func (a *Authenticator) RequireSelf(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		identity, ok := IdentityFromContext(r.Context())
 		if !ok {
+			if a.logger != nil {
+				a.logger.Debug("require self rejected: missing identity in context")
+			}
 			handler.WriteError(a.logger, w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
@@ -132,6 +154,9 @@ func (a *Authenticator) RequireSelf(next http.Handler) http.Handler {
 			return
 		}
 
+		if a.logger != nil {
+			a.logger.Debug("require self rejected: user is neither admin nor target user", "role", identity.Role, "actor", identity.PublicID, "target", r.PathValue("publicID"))
+		}
 		handler.WriteError(a.logger, w, http.StatusForbidden, "forbidden")
 	})
 }
