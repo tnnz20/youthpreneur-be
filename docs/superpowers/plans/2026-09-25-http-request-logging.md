@@ -122,12 +122,12 @@ func TestRequestLoggerLogsWarnFor4xxAndErrorFor5xx(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `go test -v ./internal/delivery/http/middleware -run TestRequestLogger`
 Expected: Compile failure / function not defined.
 
-- [ ] **Step 3: Implement `RequestLogger` middleware**
+- [x] **Step 3: Implement `RequestLogger` middleware**
 
 Create `internal/delivery/http/middleware/request_logger.go`:
 ```go
@@ -186,12 +186,12 @@ func RequestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `go test -v ./internal/delivery/http/middleware -run TestRequestLogger`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/delivery/http/middleware/request_logger.go internal/delivery/http/middleware/request_logger_test.go
@@ -206,7 +206,7 @@ git commit -m "feat(http): add request logging middleware with dynamic slog leve
 - Modify: `internal/config/bootstrap.go`
 - Test: `internal/config/bootstrap_test.go` (or run full test suite)
 
-- [ ] **Step 1: Add DB connection log and wrap HTTP handler in `Bootstrap`**
+- [x] **Step 1: Add DB connection log and wrap HTTP handler in `Bootstrap`**
 
 In `internal/config/bootstrap.go`:
 1. After `OpenPostgres(ctx, cfg.Postgres)` returns successfully, add:
@@ -227,12 +227,12 @@ In `internal/config/bootstrap.go`:
 	return middleware.RequestLogger(logger)(corsAndLimited), db, nil
 ```
 
-- [ ] **Step 2: Run all tests to ensure bootstrap wiring passes**
+- [x] **Step 2: Run all tests to ensure bootstrap wiring passes**
 
 Run: `go test ./...` and `go vet ./...`
 Expected: PASS across all packages.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add internal/config/bootstrap.go
@@ -246,7 +246,7 @@ git commit -m "feat(config): wire request logger middleware and log database con
 **Files:**
 - Modify: `compose.yaml`
 
-- [ ] **Step 1: Configure `logging` options in `compose.yaml`**
+- [x] **Step 1: Configure `logging` options in `compose.yaml`**
 
 Under `backend`:
 ```yaml
@@ -257,7 +257,7 @@ Under `backend`:
         max-file: "3"
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add compose.yaml
@@ -268,7 +268,7 @@ git commit -m "build(compose): configure k8s-file log rotation for backend servi
 
 ### Task 4: Full Repository Verification
 
-- [ ] **Step 1: Run comprehensive tests and lint checks**
+- [x] **Step 1: Run comprehensive tests and lint checks**
 
 Run:
 ```bash
