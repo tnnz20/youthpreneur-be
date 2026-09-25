@@ -39,6 +39,12 @@ func Bootstrap(ctx context.Context, cfg Config, logger *slog.Logger) (http.Handl
 		return nil, nil, err
 	}
 
+	logger.Info("database connected successfully",
+		"host", cfg.Postgres.Host,
+		"port", cfg.Postgres.Port,
+		"database", cfg.Postgres.Database,
+	)
+
 	healthRepo := repository.NewHealthRepository()
 	healthUsecase := usecase.NewHealthUseCase(healthRepo)
 	healthHandler := handler.NewHealthHandler(logger, healthUsecase)
@@ -94,7 +100,8 @@ func Bootstrap(ctx context.Context, cfg Config, logger *slog.Logger) (http.Handl
 
 	// Rate limiting wraps CORS so disallowed-origin requests are also counted
 	// and limited. CORS policy itself is unchanged.
-	return generalLimit(middleware.CORS(cfg.CORS.AllowedOrigins)(mux)), db, nil
+	corsAndLimited := generalLimit(middleware.CORS(cfg.CORS.AllowedOrigins)(mux))
+	return middleware.RequestLogger(logger)(corsAndLimited), db, nil
 }
 
 // OpenPostgres opens the pgx database/sql connection and verifies it with a
