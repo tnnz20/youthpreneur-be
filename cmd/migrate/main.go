@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/url"
@@ -14,9 +15,10 @@ import (
 
 	"github.com/tnnz20/youthpreneur-be/db/migrations"
 	"github.com/tnnz20/youthpreneur-be/internal/config"
+	"github.com/tnnz20/youthpreneur-be/internal/sshtunnel"
 )
 
-const usage = "usage: migrate <up|down|force VERSION|version>"
+const usage = "usage: migrate [--ssh] <up|down|force VERSION|version>"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -26,20 +28,49 @@ func main() {
 }
 
 func run(args []string) error {
-	if len(args) == 0 {
-		return errors.New(usage)
+	var useSSH bool
+	var filtered []string
+	for _, arg := range args {
+		if arg == "--ssh" || arg == "-ssh" {
+			useSSH = true
+		} else {
+			filtered = append(filtered, arg)
+		}
 	}
 
-	cfg := config.Load()
+	if len(filtered) == 0 {
+		return errors.New(usage)
+	}
 
 	source, err := iofs.New(migrations.FS, ".")
 	if err != nil {
 		return fmt.Errorf("read embedded migrations: %w", err)
 	}
 
-	dsn, err := migrationDSN(cfg.Postgres.DSN())
-	if err != nil {
-		return fmt.Errorf("build migration dsn: %w", err)
+	var dsn string
+	if useSSH {
+		sshCfg, pgCfg, err := config.LoadSSHConfig()
+		if err != nil {
+			return fmt.Errorf("load ssh config: %w", err)
+		}
+
+		tunnel, err := sshtunnel.Open(context.Background(), sshCfg, pgCfg.Host, pgCfg.Port)
+		if err != nil {
+			return fmt.Errorf("open ssh tunnel: %w", err)
+		}
+		defer func() { _ = tunnel.Close() }()
+
+		dsn, err = migrationDSN(pgCfg.DSNFor(tunnel.LocalAddr, tunnel.LocalPort))
+		if err != nil {
+			return fmt.Errorf("build migration dsn: %w", err)
+		}
+	} else {
+		cfg := config.Load()
+		var err error
+		dsn, err = migrationDSN(cfg.Postgres.DSN())
+		if err != nil {
+			return fmt.Errorf("build migration dsn: %w", err)
+		}
 	}
 
 	m, err := migrate.NewWithSourceInstance("iofs", source, dsn)
@@ -48,17 +79,17 @@ func run(args []string) error {
 	}
 	defer closeMigrator(m)
 
-	switch args[0] {
+	switch filtered[0] {
 	case "up":
 		return apply(m.Up(), "up")
 	case "down":
 		return apply(m.Down(), "down")
 	case "force":
-		return force(m, args[1:])
+		return force(m, filtered[1:])
 	case "version":
 		return printVersion(m)
 	default:
-		return fmt.Errorf("unknown command %q\n%s", args[0], usage)
+		return fmt.Errorf("unknown command %q\n%s", filtered[0], usage)
 	}
 }
 

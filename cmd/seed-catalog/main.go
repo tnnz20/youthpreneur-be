@@ -19,6 +19,7 @@ import (
 	"github.com/tnnz20/youthpreneur-be/internal/entity"
 	"github.com/tnnz20/youthpreneur-be/internal/repository"
 	"github.com/tnnz20/youthpreneur-be/internal/repository/persistence"
+	"github.com/tnnz20/youthpreneur-be/internal/sshtunnel"
 	"github.com/tnnz20/youthpreneur-be/internal/usecase"
 )
 
@@ -34,15 +35,16 @@ type catalogCreator interface {
 
 func main() {
 	filePath := flag.String("file", defaultCSVPath, "Path to training catalog CSV file")
+	useSSH := flag.Bool("ssh", false, "Use SSH tunnel to connect to PostgreSQL")
 	flag.Parse()
 
-	if err := run(context.Background(), *filePath, os.Stdout, time.Now); err != nil {
+	if err := run(context.Background(), *filePath, *useSSH, os.Stdout, time.Now); err != nil {
 		fmt.Fprintln(os.Stderr, "seed-catalog error:", err)
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context, filePath string, out io.Writer, now func() time.Time) error {
+func run(ctx context.Context, filePath string, useSSH bool, out io.Writer, now func() time.Time) error {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return fmt.Errorf("open csv file %q: %w", filePath, err)
@@ -58,8 +60,33 @@ func run(ctx context.Context, filePath string, out io.Writer, now func() time.Ti
 		return errors.New("csv file contains no records to seed")
 	}
 
-	cfg := config.Load()
-	db, err := config.OpenPostgres(ctx, cfg.Postgres)
+	var postgresCfg config.PostgresConfig
+	if useSSH {
+		sshCfg, pgCfg, err := config.LoadSSHConfig()
+		if err != nil {
+			return fmt.Errorf("load ssh config: %w", err)
+		}
+
+		tunnel, err := sshtunnel.Open(ctx, sshCfg, pgCfg.Host, pgCfg.Port)
+		if err != nil {
+			return fmt.Errorf("open ssh tunnel: %w", err)
+		}
+		defer func() { _ = tunnel.Close() }()
+
+		postgresCfg = config.PostgresConfig{
+			Host:     tunnel.LocalAddr,
+			Port:     tunnel.LocalPort,
+			User:     pgCfg.User,
+			Password: pgCfg.Password,
+			Database: pgCfg.Database,
+			SSLMode:  pgCfg.SSLMode,
+		}
+	} else {
+		cfg := config.Load()
+		postgresCfg = cfg.Postgres
+	}
+
+	db, err := config.OpenPostgres(ctx, postgresCfg)
 	if err != nil {
 		return fmt.Errorf("connect to database: %w", err)
 	}
