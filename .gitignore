@@ -32,3 +32,6 @@ var/
 
 # External seed files
 db/seeds/external/
+
+# Superpowers temporary workspace
+.superpowers/

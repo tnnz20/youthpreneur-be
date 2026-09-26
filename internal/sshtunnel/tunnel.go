@@ -77,10 +77,18 @@ func Open(ctx context.Context, sshCfg config.SSHConfig, remoteHost string, remot
 	}
 
 	sshAddr := net.JoinHostPort(sshCfg.Host, strconv.Itoa(sshCfg.Port))
-	client, err := ssh.Dial("tcp", sshAddr, clientConfig)
+	dialer := net.Dialer{}
+	netConn, err := dialer.DialContext(ctx, "tcp", sshAddr)
 	if err != nil {
 		return nil, fmt.Errorf("ssh dial %s: %w", sshAddr, err)
 	}
+
+	c, chans, reqs, err := ssh.NewClientConn(netConn, sshAddr, clientConfig)
+	if err != nil {
+		_ = netConn.Close()
+		return nil, fmt.Errorf("ssh handshake %s: %w", sshAddr, err)
+	}
+	client := ssh.NewClient(c, chans, reqs)
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -113,12 +121,7 @@ func (t *Tunnel) forward(targetAddr string) {
 	for {
 		localConn, err := t.listener.Accept()
 		if err != nil {
-			select {
-			case <-t.done:
-				return
-			default:
-				return
-			}
+			return
 		}
 
 		go func(local net.Conn) {
@@ -137,22 +140,24 @@ func (t *Tunnel) forward(targetAddr string) {
 
 func pipe(c1, c2 net.Conn) {
 	var wg sync.WaitGroup
+	var once sync.Once
+	closeBoth := func() {
+		_ = c1.Close()
+		_ = c2.Close()
+	}
+
 	wg.Add(2)
 
 	go func() {
 		defer wg.Done()
+		defer once.Do(closeBoth)
 		_, _ = io.Copy(c1, c2)
-		if tc, ok := c1.(*net.TCPConn); ok {
-			_ = tc.CloseWrite()
-		}
 	}()
 
 	go func() {
 		defer wg.Done()
+		defer once.Do(closeBoth)
 		_, _ = io.Copy(c2, c1)
-		if tc, ok := c2.(*net.TCPConn); ok {
-			_ = tc.CloseWrite()
-		}
 	}()
 
 	wg.Wait()

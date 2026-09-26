@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -173,5 +175,62 @@ func TestSSHTunnelForwardsTraffic(t *testing.T) {
 	want := "echo:hello-through-ssh"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestSSHTunnelClosesOnClientDisconnect(t *testing.T) {
+	targetListener, targetPort := startMockTargetServer(t)
+	defer targetListener.Close()
+
+	sshListener, _, sshCfg := startMockSSHServer(t, targetPort)
+	defer sshListener.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	tunnel, err := sshtunnel.Open(ctx, *sshCfg, "127.0.0.1", targetPort)
+	if err != nil {
+		t.Fatalf("failed to open tunnel: %v", err)
+	}
+	defer func() { _ = tunnel.Close() }()
+
+	localAddr := net.JoinHostPort(tunnel.LocalAddr, strconv.Itoa(tunnel.LocalPort))
+	conn, err := net.DialTimeout("tcp", localAddr, 2*time.Second)
+	if err != nil {
+		t.Fatalf("dial tunnel: %v", err)
+	}
+
+	if _, err := conn.Write([]byte("ping")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	buf := make([]byte, 64)
+	if _, err := conn.Read(buf); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	if err := conn.Close(); err != nil {
+		t.Fatalf("close conn: %v", err)
+	}
+
+	// Give goroutines time to tear down cleanly
+	time.Sleep(50 * time.Millisecond)
+}
+
+func TestSSHTunnelRespectsContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	sshCfg := config.SSHConfig{
+		Host: "127.0.0.1",
+		Port: 59999, // Unreachable / non-listening port
+		User: "testuser",
+	}
+
+	_, err := sshtunnel.Open(ctx, sshCfg, "127.0.0.1", 5432)
+	if err == nil {
+		t.Fatal("expected error with cancelled context, got nil")
+	}
+	if !errors.Is(err, context.Canceled) && !strings.Contains(strings.ToLower(err.Error()), "canceled") {
+		t.Errorf("expected context canceled error, got: %v", err)
 	}
 }
