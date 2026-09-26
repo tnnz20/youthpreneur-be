@@ -244,7 +244,7 @@ func (u enterpriseUsecase) CreateEnterprise(
 		return entity.Enterprise{}, ErrForbidden
 	}
 
-	name := strings.TrimSpace(input.EnterpriseName)
+	name := strings.ToUpper(strings.TrimSpace(input.EnterpriseName))
 	if name == "" {
 		return entity.Enterprise{}, badRequest("enterprise_name is required")
 	}
@@ -576,7 +576,7 @@ func (u enterpriseUsecase) UpdateEnterprise(
 	update := entity.EnterpriseUpdate{UpdatedAt: u.now()}
 
 	if input.EnterpriseName != nil {
-		name := strings.TrimSpace(*input.EnterpriseName)
+		name := strings.ToUpper(strings.TrimSpace(*input.EnterpriseName))
 		if name == "" {
 			return entity.Enterprise{}, badRequest("enterprise_name cannot be empty")
 		}

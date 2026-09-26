@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -131,8 +132,8 @@ func seedUserEnterprises(
 				}
 
 				profile := entity.Profile{
-					FullName: rec.FullName,
-					District: rec.District,
+					FullName: strings.ToUpper(strings.TrimSpace(rec.FullName)),
+					District: strings.ToUpper(strings.TrimSpace(rec.District)),
 					Address:  rec.Address,
 				}
 
@@ -185,10 +186,11 @@ func seedUserEnterprises(
 				return fmt.Errorf("generate enterprise public id: %w", err)
 			}
 
+			enterpriseName := strings.ToUpper(strings.TrimSpace(rec.EnterpriseName))
 			enterpriseToCreate := entity.Enterprise{
 				PublicID:             enterprisePublicID,
 				UserID:               createdUser.ID,
-				EnterpriseName:       rec.EnterpriseName,
+				EnterpriseName:       enterpriseName,
 				Description:          rec.Description,
 				Address:              rec.Address,
 				BusinessSector:       rec.BusinessSector,
@@ -211,7 +213,7 @@ func seedUserEnterprises(
 				ActorUserID: createdUser.ID,
 				Action:      entity.AuditActionCreate,
 				ChangedFields: map[string]any{
-					"enterprise_name":       rec.EnterpriseName,
+					"enterprise_name":       enterpriseName,
 					"description":           entity.NullableAuditValue(rec.Description),
 					"address":               entity.NullableAuditValue(rec.Address),
 					"business_sector":       string(rec.BusinessSector),

@@ -53,8 +53,25 @@ func (m *mockEnterpriseRepo) FindEnterprises(ctx context.Context, filter entity.
 }
 
 func TestSeedUserEnterprises_Success(t *testing.T) {
-	uRepo := &mockUserRepo{}
-	eRepo := &mockEnterpriseRepo{}
+	var capturedUser entity.User
+	var capturedEnterprise entity.Enterprise
+	var capturedAuditEvent entity.EnterpriseAuditEvent
+
+	uRepo := &mockUserRepo{
+		createUserFunc: func(ctx context.Context, user entity.User) (entity.User, error) {
+			capturedUser = user
+			user.ID = 101
+			return user, nil
+		},
+	}
+	eRepo := &mockEnterpriseRepo{
+		createEnterpriseFunc: func(ctx context.Context, enterprise entity.Enterprise, event entity.EnterpriseAuditEvent) (entity.Enterprise, error) {
+			capturedEnterprise = enterprise
+			capturedAuditEvent = event
+			enterprise.ID = 201
+			return enterprise, nil
+		},
+	}
 
 	records := []UserEnterpriseRecord{
 		{
@@ -83,6 +100,16 @@ func TestSeedUserEnterprises_Success(t *testing.T) {
 	err := seedUserEnterprises(context.Background(), uRepo, eRepo, records, &buf, fixedNow)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if capturedUser.Profile == nil || capturedUser.Profile.FullName != "JANE DOE" {
+		t.Errorf("captured user full_name = %v, want JANE DOE", capturedUser.Profile)
+	}
+	if capturedEnterprise.EnterpriseName != "JANE BAKERY" {
+		t.Errorf("captured enterprise_name = %q, want JANE BAKERY", capturedEnterprise.EnterpriseName)
+	}
+	if capturedAuditEvent.ChangedFields["enterprise_name"] != "JANE BAKERY" {
+		t.Errorf("audit changed fields enterprise_name = %v, want JANE BAKERY", capturedAuditEvent.ChangedFields["enterprise_name"])
 	}
 
 	out := buf.String()
