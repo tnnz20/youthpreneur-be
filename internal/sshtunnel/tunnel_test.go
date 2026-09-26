@@ -234,3 +234,20 @@ func TestSSHTunnelRespectsContextCancellation(t *testing.T) {
 		t.Errorf("expected context canceled error, got: %v", err)
 	}
 }
+
+func TestResolvePostgres_Direct(t *testing.T) {
+	t.Setenv("POSTGRES_HOST", "127.0.0.1")
+	t.Setenv("POSTGRES_PORT", "5432")
+	t.Setenv("POSTGRES_DB", "youthpreneur_test")
+	t.Setenv("POSTGRES_USER", "pguser")
+
+	pgCfg, closer, err := sshtunnel.ResolvePostgres(context.Background(), false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer closer.Close()
+
+	if pgCfg.Host != "127.0.0.1" || pgCfg.Port != 5432 || pgCfg.Database != "youthpreneur_test" {
+		t.Errorf("unexpected pgCfg: %+v", pgCfg)
+	}
+}

@@ -75,31 +75,11 @@ func run(ctx context.Context, useSSH bool, _ func(string) string, out io.Writer,
 		return fmt.Errorf("%s: %w", envAdminPassword, err)
 	}
 
-	var postgresCfg config.PostgresConfig
-	if useSSH {
-		sshCfg, pgCfg, err := config.LoadSSHConfig()
-		if err != nil {
-			return fmt.Errorf("load ssh config: %w", err)
-		}
-
-		tunnel, err := sshtunnel.Open(ctx, sshCfg, pgCfg.Host, pgCfg.Port)
-		if err != nil {
-			return fmt.Errorf("open ssh tunnel: %w", err)
-		}
-		defer func() { _ = tunnel.Close() }()
-
-		postgresCfg = config.PostgresConfig{
-			Host:     tunnel.LocalAddr,
-			Port:     tunnel.LocalPort,
-			User:     pgCfg.User,
-			Password: pgCfg.Password,
-			Database: pgCfg.Database,
-			SSLMode:  pgCfg.SSLMode,
-		}
-	} else {
-		cfg := config.Load()
-		postgresCfg = cfg.Postgres
+	postgresCfg, closer, err := sshtunnel.ResolvePostgres(ctx, useSSH)
+	if err != nil {
+		return err
 	}
+	defer func() { _ = closer.Close() }()
 
 	db, err := config.OpenPostgres(ctx, postgresCfg)
 	if err != nil {

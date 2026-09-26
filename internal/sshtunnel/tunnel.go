@@ -162,3 +162,38 @@ func pipe(c1, c2 net.Conn) {
 
 	wg.Wait()
 }
+
+type noopCloser struct{}
+
+func (noopCloser) Close() error { return nil }
+
+// ResolvePostgres resolves PostgreSQL connection settings, automatically
+// establishing an SSH tunnel when useSSH is true. The caller must close the
+// returned io.Closer when finished.
+func ResolvePostgres(ctx context.Context, useSSH bool) (config.PostgresConfig, io.Closer, error) {
+	if !useSSH {
+		cfg := config.Load()
+		return cfg.Postgres, noopCloser{}, nil
+	}
+
+	sshCfg, pgCfg, err := config.LoadSSHConfig()
+	if err != nil {
+		return config.PostgresConfig{}, nil, fmt.Errorf("load ssh config: %w", err)
+	}
+
+	tunnel, err := Open(ctx, sshCfg, pgCfg.Host, pgCfg.Port)
+	if err != nil {
+		return config.PostgresConfig{}, nil, fmt.Errorf("open ssh tunnel: %w", err)
+	}
+
+	resolved := config.PostgresConfig{
+		Host:     tunnel.LocalAddr,
+		Port:     tunnel.LocalPort,
+		User:     pgCfg.User,
+		Password: pgCfg.Password,
+		Database: pgCfg.Database,
+		SSLMode:  pgCfg.SSLMode,
+	}
+
+	return resolved, tunnel, nil
+}

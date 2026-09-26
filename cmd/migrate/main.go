@@ -14,7 +14,6 @@ import (
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 
 	"github.com/tnnz20/youthpreneur-be/db/migrations"
-	"github.com/tnnz20/youthpreneur-be/internal/config"
 	"github.com/tnnz20/youthpreneur-be/internal/sshtunnel"
 )
 
@@ -47,30 +46,15 @@ func run(args []string) error {
 		return fmt.Errorf("read embedded migrations: %w", err)
 	}
 
-	var dsn string
-	if useSSH {
-		sshCfg, pgCfg, err := config.LoadSSHConfig()
-		if err != nil {
-			return fmt.Errorf("load ssh config: %w", err)
-		}
+	postgresCfg, closer, err := sshtunnel.ResolvePostgres(context.Background(), useSSH)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = closer.Close() }()
 
-		tunnel, err := sshtunnel.Open(context.Background(), sshCfg, pgCfg.Host, pgCfg.Port)
-		if err != nil {
-			return fmt.Errorf("open ssh tunnel: %w", err)
-		}
-		defer func() { _ = tunnel.Close() }()
-
-		dsn, err = migrationDSN(pgCfg.DSNFor(tunnel.LocalAddr, tunnel.LocalPort))
-		if err != nil {
-			return fmt.Errorf("build migration dsn: %w", err)
-		}
-	} else {
-		cfg := config.Load()
-		var err error
-		dsn, err = migrationDSN(cfg.Postgres.DSN())
-		if err != nil {
-			return fmt.Errorf("build migration dsn: %w", err)
-		}
+	dsn, err := migrationDSN(postgresCfg.DSN())
+	if err != nil {
+		return fmt.Errorf("build migration dsn: %w", err)
 	}
 
 	m, err := migrate.NewWithSourceInstance("iofs", source, dsn)
