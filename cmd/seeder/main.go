@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -18,6 +19,7 @@ import (
 	"github.com/tnnz20/youthpreneur-be/internal/entity"
 	"github.com/tnnz20/youthpreneur-be/internal/repository"
 	"github.com/tnnz20/youthpreneur-be/internal/repository/persistence"
+	"github.com/tnnz20/youthpreneur-be/internal/sshtunnel"
 	"github.com/tnnz20/youthpreneur-be/internal/usecase"
 )
 
@@ -44,7 +46,10 @@ type adminCreator interface {
 }
 
 func main() {
-	if err := run(context.Background(), os.Getenv, os.Stdout, time.Now); err != nil {
+	useSSH := flag.Bool("ssh", false, "Use SSH tunnel to connect to PostgreSQL")
+	flag.Parse()
+
+	if err := run(context.Background(), *useSSH, os.Stdout, time.Now); err != nil {
 		fmt.Fprintln(os.Stderr, "seeder:", err)
 		os.Exit(1)
 	}
@@ -52,7 +57,7 @@ func main() {
 
 // run validates the seed credentials before opening the database, then creates
 // the admin. It returns an error and writes nothing to out on failure.
-func run(ctx context.Context, _ func(string) string, out io.Writer, now func() time.Time) error {
+func run(ctx context.Context, useSSH bool, out io.Writer, now func() time.Time) error {
 	credentials := config.LoadSeederCredentials()
 	email := usecase.NormalizeEmail(credentials.AdminEmail)
 	password := credentials.AdminPassword
@@ -70,9 +75,13 @@ func run(ctx context.Context, _ func(string) string, out io.Writer, now func() t
 		return fmt.Errorf("%s: %w", envAdminPassword, err)
 	}
 
-	cfg := config.Load()
+	postgresCfg, closer, err := sshtunnel.ResolvePostgres(ctx, useSSH)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = closer.Close() }()
 
-	db, err := config.OpenPostgres(ctx, cfg.Postgres)
+	db, err := config.OpenPostgres(ctx, postgresCfg)
 	if err != nil {
 		return err
 	}

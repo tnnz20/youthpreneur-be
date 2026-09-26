@@ -658,7 +658,7 @@ Enterprise assessment enums:
 - `capital_access` and `partnership` (`general_status_enum`): `yes`, `no`,
   `in_progress`
 
-`enterprise_name` is required, trimmed, and cannot be empty (up to 255 characters).
+`enterprise_name` is required, trimmed, stored uppercased, and cannot be empty (up to 255 characters).
 `description` and `address` are optional `TEXT` fields.
 `focus_commodity` and `dispora_support` are optional `VARCHAR(255)` fields.
 The assessment fields are nullable and serialize as JSON `null` when unset.
@@ -739,7 +739,7 @@ Create an enterprise owned by the authenticated user.
 
 | Field | Type | Required | Format | Notes |
 | --- | --- | --- | --- | --- |
-| `enterprise_name` | string | ✓ | Up to 255 characters | Required; trimmed; cannot be empty |
+| `enterprise_name` | string | ✓ | Up to 255 characters | Required; trimmed and stored uppercased; cannot be empty |
 | `business_sector` | string | ✓ | Supported `business_sector_enum` value | Required |
 | `description` | string | No | Text | Optional; empty stores `null` |
 | `address` | string | No | Text | Optional; empty stores `null` |
@@ -919,7 +919,7 @@ Partially update an active enterprise. Omitted fields keep their current value.
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `enterprise_name` | string | No | At most 255 characters; cannot be empty string |
+| `enterprise_name` | string | No | At most 255 characters; trimmed and stored uppercased; cannot be empty string |
 | `business_sector` | string | No | Supported `business_sector_enum` value |
 | `description` | string | No | Empty clears to `null` |
 | `address` | string | No | Empty clears to `null` |

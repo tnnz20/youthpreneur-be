@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/url"
@@ -13,10 +14,10 @@ import (
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 
 	"github.com/tnnz20/youthpreneur-be/db/migrations"
-	"github.com/tnnz20/youthpreneur-be/internal/config"
+	"github.com/tnnz20/youthpreneur-be/internal/sshtunnel"
 )
 
-const usage = "usage: migrate <up|down|force VERSION|version>"
+const usage = "usage: migrate [--ssh] <up|down|force VERSION|version>"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -26,18 +27,32 @@ func main() {
 }
 
 func run(args []string) error {
-	if len(args) == 0 {
-		return errors.New(usage)
+	var useSSH bool
+	var filtered []string
+	for _, arg := range args {
+		if arg == "--ssh" || arg == "-ssh" {
+			useSSH = true
+		} else {
+			filtered = append(filtered, arg)
+		}
 	}
 
-	cfg := config.Load()
+	if len(filtered) == 0 {
+		return errors.New(usage)
+	}
 
 	source, err := iofs.New(migrations.FS, ".")
 	if err != nil {
 		return fmt.Errorf("read embedded migrations: %w", err)
 	}
 
-	dsn, err := migrationDSN(cfg.Postgres.DSN())
+	postgresCfg, closer, err := sshtunnel.ResolvePostgres(context.Background(), useSSH)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = closer.Close() }()
+
+	dsn, err := migrationDSN(postgresCfg.DSN())
 	if err != nil {
 		return fmt.Errorf("build migration dsn: %w", err)
 	}
@@ -48,17 +63,17 @@ func run(args []string) error {
 	}
 	defer closeMigrator(m)
 
-	switch args[0] {
+	switch filtered[0] {
 	case "up":
 		return apply(m.Up(), "up")
 	case "down":
 		return apply(m.Down(), "down")
 	case "force":
-		return force(m, args[1:])
+		return force(m, filtered[1:])
 	case "version":
 		return printVersion(m)
 	default:
-		return fmt.Errorf("unknown command %q\n%s", args[0], usage)
+		return fmt.Errorf("unknown command %q\n%s", filtered[0], usage)
 	}
 }
 

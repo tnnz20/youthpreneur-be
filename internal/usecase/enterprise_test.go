@@ -238,8 +238,8 @@ func TestCreateEnterpriseAssignsOwnerAndNormalizesInput(t *testing.T) {
 	if created.UserID != 7 {
 		t.Errorf("owner = %d, want 7", created.UserID)
 	}
-	if created.EnterpriseName != "Warung Kopi" {
-		t.Errorf("enterprise_name = %q, want trimmed", created.EnterpriseName)
+	if created.EnterpriseName != "WARUNG KOPI" {
+		t.Errorf("enterprise_name = %q, want uppercased and trimmed", created.EnterpriseName)
 	}
 	if created.InitialTurnover != "1500.00" || created.CurrentTurnover != "0.00" {
 		t.Errorf("turnovers = (%q, %q), want canonical 1500.00 and 0.00", created.InitialTurnover, created.CurrentTurnover)
@@ -256,8 +256,8 @@ func TestCreateEnterpriseAssignsOwnerAndNormalizesInput(t *testing.T) {
 	if repo.lastCreateEvnt.ActorUserID != 7 {
 		t.Errorf("audit actor = %d, want 7", repo.lastCreateEvnt.ActorUserID)
 	}
-	if repo.lastCreateEvnt.ChangedFields["enterprise_name"] != "Warung Kopi" {
-		t.Errorf("audit changed fields = %v, want enterprise_name", repo.lastCreateEvnt.ChangedFields)
+	if repo.lastCreateEvnt.ChangedFields["enterprise_name"] != "WARUNG KOPI" {
+		t.Errorf("audit changed fields = %v, want WARUNG KOPI", repo.lastCreateEvnt.ChangedFields)
 	}
 }
 
@@ -662,8 +662,8 @@ func TestUpdateEnterpriseOwnerChangesAllowedFields(t *testing.T) {
 	if repo.lastUpdateOwner != 7 {
 		t.Errorf("owner scope = %d, want 7", repo.lastUpdateOwner)
 	}
-	if updated.EnterpriseName != "New" || updated.CurrentTurnover != "30.00" {
-		t.Errorf("updated = %+v, want New and 30.00", updated)
+	if updated.EnterpriseName != "NEW" || updated.CurrentTurnover != "30.00" {
+		t.Errorf("updated = %+v, want NEW and 30.00", updated)
 	}
 	if updated.District != "New District" {
 		t.Errorf("district = %q, want New District", updated.District)
@@ -674,8 +674,8 @@ func TestUpdateEnterpriseOwnerChangesAllowedFields(t *testing.T) {
 	if updated.InitialTurnover != "10.00" {
 		t.Errorf("initial turnover = %q, want untouched 10.00", updated.InitialTurnover)
 	}
-	if repo.lastUpdate.EnterpriseName == nil || *repo.lastUpdate.EnterpriseName != "New" {
-		t.Errorf("update patch enterprise_name = %v, want New", repo.lastUpdate.EnterpriseName)
+	if repo.lastUpdate.EnterpriseName == nil || *repo.lastUpdate.EnterpriseName != "NEW" {
+		t.Errorf("update patch enterprise_name = %v, want NEW", repo.lastUpdate.EnterpriseName)
 	}
 	if repo.lastUpdate.CurrentTurnover == nil || *repo.lastUpdate.CurrentTurnover != "30.00" {
 		t.Errorf("update patch current_turnover = %v, want canonical 30.00", repo.lastUpdate.CurrentTurnover)
@@ -761,7 +761,7 @@ func TestUpdateEnterpriseForwardsUnchangedValueToRepository(t *testing.T) {
 	repo := &fakeEnterpriseRepository{findResult: entity.Enterprise{
 		ID:              5,
 		PublicID:        "TPN-000005",
-		EnterpriseName:  "Old",
+		EnterpriseName:  "OLD",
 		BusinessSector:  entity.BusinessSectorPerdaganganRitel,
 		InitialTurnover: "0.00",
 		CurrentTurnover: "0.00",
@@ -780,11 +780,11 @@ func TestUpdateEnterpriseForwardsUnchangedValueToRepository(t *testing.T) {
 	if repo.updateCalls != 1 {
 		t.Errorf("update calls = %d, want 1", repo.updateCalls)
 	}
-	if repo.lastUpdate.EnterpriseName == nil || *repo.lastUpdate.EnterpriseName != "Old" {
-		t.Errorf("update patch enterprise_name = %v, want Old", repo.lastUpdate.EnterpriseName)
+	if repo.lastUpdate.EnterpriseName == nil || *repo.lastUpdate.EnterpriseName != "OLD" {
+		t.Errorf("update patch enterprise_name = %v, want OLD", repo.lastUpdate.EnterpriseName)
 	}
-	if result.EnterpriseName != "Old" {
-		t.Errorf("enterprise_name = %q, want Old", result.EnterpriseName)
+	if result.EnterpriseName != "OLD" {
+		t.Errorf("enterprise_name = %q, want OLD", result.EnterpriseName)
 	}
 }
 
@@ -952,6 +952,53 @@ func TestFindEnterpriseAuditLogs(t *testing.T) {
 		})
 		if !errors.Is(err, usecase.ErrEnterpriseNotFound) {
 			t.Errorf("error = %v, want ErrEnterpriseNotFound", err)
+		}
+	})
+}
+
+func TestEnterpriseNameUppercasedOnCreateAndUpdate(t *testing.T) {
+	t.Run("CreateEnterprise uppercases enterprise_name", func(t *testing.T) {
+		repo := &fakeEnterpriseRepository{}
+		uc := usecase.NewEnterpriseUseCase(repo)
+
+		created, err := uc.CreateEnterprise(context.Background(), usecase.CreateEnterpriseInput{
+			Actor:          memberActor(),
+			EnterpriseName: "  warung kopi mantap  ",
+			BusinessSector: "Kuliner",
+		})
+		if err != nil {
+			t.Fatalf("CreateEnterprise() error = %v", err)
+		}
+		if created.EnterpriseName != "WARUNG KOPI MANTAP" {
+			t.Errorf("created.EnterpriseName = %q, want WARUNG KOPI MANTAP", created.EnterpriseName)
+		}
+		if repo.lastCreated.EnterpriseName != "WARUNG KOPI MANTAP" {
+			t.Errorf("repo.lastCreated.EnterpriseName = %q, want WARUNG KOPI MANTAP", repo.lastCreated.EnterpriseName)
+		}
+	})
+
+	t.Run("UpdateEnterprise uppercases enterprise_name", func(t *testing.T) {
+		repo := &fakeEnterpriseRepository{findResult: entity.Enterprise{
+			ID:             1,
+			PublicID:       "TPN-000001",
+			UserID:         7,
+			EnterpriseName: "OLD NAME",
+			BusinessSector: entity.BusinessSectorKuliner,
+			Status:         entity.EnterpriseStatusActive,
+		}}
+		uc := usecase.NewEnterpriseUseCase(repo)
+
+		updated, err := uc.UpdateEnterprise(context.Background(), memberActor(), "TPN-000001", usecase.UpdateEnterpriseInput{
+			EnterpriseName: stringPtr("  new brand store  "),
+		})
+		if err != nil {
+			t.Fatalf("UpdateEnterprise() error = %v", err)
+		}
+		if updated.EnterpriseName != "NEW BRAND STORE" {
+			t.Errorf("updated.EnterpriseName = %q, want NEW BRAND STORE", updated.EnterpriseName)
+		}
+		if repo.lastUpdate.EnterpriseName == nil || *repo.lastUpdate.EnterpriseName != "NEW BRAND STORE" {
+			t.Errorf("repo.lastUpdate.EnterpriseName = %v, want NEW BRAND STORE", repo.lastUpdate.EnterpriseName)
 		}
 	})
 }
