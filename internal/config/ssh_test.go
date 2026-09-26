@@ -1,7 +1,6 @@
 package config_test
 
 import (
-	"os"
 	"testing"
 
 	"github.com/tnnz20/youthpreneur-be/internal/config"
@@ -142,26 +141,15 @@ func TestSSHPostgresConfigDSNFor(t *testing.T) {
 }
 
 func TestLoadSSHConfigFromEnv(t *testing.T) {
-	os.Setenv("SSH_HOST", "ssh.example.com")
-	os.Setenv("SSH_PORT", "2222")
-	os.Setenv("SSH_USER", "deploy")
-	os.Setenv("SSH_PASSWORD", "sshpass")
-	os.Setenv("SSH_POSTGRES_HOST", "10.0.0.5")
-	os.Setenv("SSH_POSTGRES_PORT", "5432")
-	os.Setenv("SSH_POSTGRES_DATABASE", "appdb")
-	os.Setenv("SSH_POSTGRES_USER", "dbuser")
-	os.Setenv("SSH_POSTGRES_PASSWORD", "dbpass")
-	defer func() {
-		os.Unsetenv("SSH_HOST")
-		os.Unsetenv("SSH_PORT")
-		os.Unsetenv("SSH_USER")
-		os.Unsetenv("SSH_PASSWORD")
-		os.Unsetenv("SSH_POSTGRES_HOST")
-		os.Unsetenv("SSH_POSTGRES_PORT")
-		os.Unsetenv("SSH_POSTGRES_DATABASE")
-		os.Unsetenv("SSH_POSTGRES_USER")
-		os.Unsetenv("SSH_POSTGRES_PASSWORD")
-	}()
+	t.Setenv("SSH_HOST", "ssh.example.com")
+	t.Setenv("SSH_PORT", "2222")
+	t.Setenv("SSH_USER", "deploy")
+	t.Setenv("SSH_PASSWORD", "sshpass")
+	t.Setenv("SSH_POSTGRES_HOST", "10.0.0.5")
+	t.Setenv("SSH_POSTGRES_PORT", "5432")
+	t.Setenv("SSH_POSTGRES_DATABASE", "appdb")
+	t.Setenv("SSH_POSTGRES_USER", "dbuser")
+	t.Setenv("SSH_POSTGRES_PASSWORD", "dbpass")
 
 	sshCfg, pgCfg, err := config.LoadSSHConfig()
 	if err != nil {

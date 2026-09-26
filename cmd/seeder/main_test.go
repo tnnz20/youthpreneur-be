@@ -48,10 +48,6 @@ func fixedNow() time.Time {
 	return time.Unix(1_700_000_000, 0)
 }
 
-func fakeGetenv(values map[string]string) func(string) string {
-	return func(key string) string { return values[key] }
-}
-
 func seedTestEnv(t *testing.T, values string) {
 	t.Helper()
 	t.Chdir(t.TempDir())
@@ -62,9 +58,7 @@ func seedTestEnv(t *testing.T, values string) {
 
 func TestRunRequiresEmail(t *testing.T) {
 	seedTestEnv(t, envAdminPassword+"=password123\n")
-	err := run(context.Background(), false, fakeGetenv(map[string]string{
-		envAdminPassword: "ignored",
-	}), io.Discard, fixedNow)
+	err := run(context.Background(), false, io.Discard, fixedNow)
 	if err == nil || !strings.Contains(err.Error(), envAdminEmail) {
 		t.Fatalf("run() error = %v, want %s required", err, envAdminEmail)
 	}
@@ -72,9 +66,7 @@ func TestRunRequiresEmail(t *testing.T) {
 
 func TestRunRequiresPassword(t *testing.T) {
 	seedTestEnv(t, envAdminEmail+"=admin@example.com\n")
-	err := run(context.Background(), false, fakeGetenv(map[string]string{
-		envAdminEmail: "ignored",
-	}), io.Discard, fixedNow)
+	err := run(context.Background(), false, io.Discard, fixedNow)
 	if err == nil || !strings.Contains(err.Error(), envAdminPassword) {
 		t.Fatalf("run() error = %v, want %s required", err, envAdminPassword)
 	}
@@ -94,10 +86,7 @@ func TestRunRejectsInvalidCredentials(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			seedTestEnv(t, envAdminEmail+"="+tc.email+"\n"+envAdminPassword+"="+tc.pass+"\n")
-			err := run(context.Background(), false, fakeGetenv(map[string]string{
-				envAdminEmail:    "ignored",
-				envAdminPassword: "ignored",
-			}), io.Discard, fixedNow)
+			err := run(context.Background(), false, io.Discard, fixedNow)
 			if err == nil {
 				t.Fatal("run() error = nil, want validation error")
 			}

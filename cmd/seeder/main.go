@@ -49,7 +49,7 @@ func main() {
 	useSSH := flag.Bool("ssh", false, "Use SSH tunnel to connect to PostgreSQL")
 	flag.Parse()
 
-	if err := run(context.Background(), *useSSH, os.Getenv, os.Stdout, time.Now); err != nil {
+	if err := run(context.Background(), *useSSH, os.Stdout, time.Now); err != nil {
 		fmt.Fprintln(os.Stderr, "seeder:", err)
 		os.Exit(1)
 	}
@@ -57,7 +57,7 @@ func main() {
 
 // run validates the seed credentials before opening the database, then creates
 // the admin. It returns an error and writes nothing to out on failure.
-func run(ctx context.Context, useSSH bool, _ func(string) string, out io.Writer, now func() time.Time) error {
+func run(ctx context.Context, useSSH bool, out io.Writer, now func() time.Time) error {
 	credentials := config.LoadSeederCredentials()
 	email := usecase.NormalizeEmail(credentials.AdminEmail)
 	password := credentials.AdminPassword
