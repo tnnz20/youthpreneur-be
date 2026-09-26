@@ -105,11 +105,6 @@ func TestParseUserEnterpriseCSV_Errors(t *testing.T) {
 			wantErr: "duplicate email",
 		},
 		{
-			name:    "missing enterprise_name",
-			csv:     "full_name,email,enterprise_name\nJane,jane@example.com,\n",
-			wantErr: "row 2: enterprise_name is required",
-		},
-		{
 			name:    "negative turnover",
 			csv:     "full_name,email,enterprise_name,initial_turnover\nJane,jane@example.com,Bakery,-500\n",
 			wantErr: "turnover cannot be negative",
@@ -131,6 +126,26 @@ func TestParseUserEnterpriseCSV_Errors(t *testing.T) {
 				t.Errorf("error %q does not contain %q", err.Error(), tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestParseUserEnterpriseCSV_NullOrEmptyEnterpriseName(t *testing.T) {
+	csvData := `full_name,email,password,enterprise_name
+User One,one@example.com,secret123,
+User Two,two@example.com,secret123,null
+User Three,three@example.com,secret123,NULL
+`
+	records, err := parseUserEnterpriseCSV(strings.NewReader(csvData))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(records) != 3 {
+		t.Fatalf("expected 3 records, got %d", len(records))
+	}
+	for i, r := range records {
+		if r.EnterpriseName != "" {
+			t.Errorf("record %d expected empty EnterpriseName, got %q", i, r.EnterpriseName)
+		}
 	}
 }
 

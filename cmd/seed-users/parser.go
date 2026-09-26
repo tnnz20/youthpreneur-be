@@ -97,8 +97,8 @@ func parseUserEnterpriseCSV(r io.Reader) ([]UserEnterpriseRecord, error) {
 		password := normalizePassword(rawPassword)
 
 		enterpriseName := getCol(row, "enterprise_name")
-		if enterpriseName == "" {
-			return nil, fmt.Errorf("row %d: enterprise_name is required", rowNum)
+		if strings.EqualFold(enterpriseName, "null") {
+			enterpriseName = ""
 		}
 
 		initialTurnover, err := normalizeTurnover(getCol(row, "initial_turnover"))

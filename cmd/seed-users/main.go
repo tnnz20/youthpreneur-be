@@ -101,6 +101,12 @@ func seedUserEnterprises(
 
 		existingUser, err := uRepo.FindUserByEmail(ctx, rec.Email)
 		if err == nil {
+			if isEnterpriseNameNull(rec.EnterpriseName) {
+				fmt.Fprintf(out, "[%d/%d] Skipped existing user: %s (public_id=%s)\n",
+					i+1, len(records), existingUser.Email, existingUser.PublicID)
+				skippedCount++
+				continue
+			}
 			ents, err := eRepo.FindEnterprises(ctx, entity.EnterpriseFilter{OwnerID: existingUser.ID})
 			if err != nil {
 				return fmt.Errorf("check enterprises for existing user %q: %w", rec.Email, err)
@@ -175,6 +181,13 @@ func seedUserEnterprises(
 			if userAttemptsExhausted || !userCreated {
 				return fmt.Errorf("failed to allocate user public id for %q: attempts exhausted", rec.Email)
 			}
+		}
+
+		if isEnterpriseNameNull(rec.EnterpriseName) {
+			fmt.Fprintf(out, "[%d/%d] Seeded: user=%s (%s), enterprise=none\n",
+				i+1, len(records), createdUser.PublicID, createdUser.Email)
+			seededCount++
+			continue
 		}
 
 		enterpriseCreated := false
@@ -256,4 +269,9 @@ func seedUserEnterprises(
 
 	fmt.Fprintf(out, "Seeding complete: %d seeded, %d skipped, %d total.\n", seededCount, skippedCount, len(records))
 	return nil
+}
+
+func isEnterpriseNameNull(name string) bool {
+	trimmed := strings.TrimSpace(name)
+	return trimmed == "" || strings.EqualFold(trimmed, "null")
 }

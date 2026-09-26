@@ -327,3 +327,104 @@ func TestSeedUserEnterprises_UserPublicIDExhaustionReturnsError(t *testing.T) {
 		t.Errorf("expected 'attempts exhausted' error, got: %v", err)
 	}
 }
+
+func TestSeedUserEnterprises_NullEnterpriseNameOnlyCreatesUser(t *testing.T) {
+	var userCreatedCount int
+	var enterpriseCreated bool
+
+	uRepo := &mockUserRepo{
+		createUserFunc: func(ctx context.Context, user entity.User) (entity.User, error) {
+			userCreatedCount++
+			user.ID = 100 + userCreatedCount
+			return user, nil
+		},
+	}
+	eRepo := &mockEnterpriseRepo{
+		createEnterpriseFunc: func(ctx context.Context, enterprise entity.Enterprise, event entity.EnterpriseAuditEvent) (entity.Enterprise, error) {
+			enterpriseCreated = true
+			return enterprise, nil
+		},
+	}
+
+	records := []UserEnterpriseRecord{
+		{
+			FullName:       "Solo User",
+			Email:          "solo@example.com",
+			Password:       "password123",
+			EnterpriseName: "null",
+			District:       "Binuang",
+		},
+		{
+			FullName:       "Empty Enterprise User",
+			Email:          "empty@example.com",
+			Password:       "password123",
+			EnterpriseName: "",
+			District:       "Tapin",
+		},
+	}
+
+	var buf bytes.Buffer
+	fixedNow := func() time.Time { return time.Unix(1700000000, 0) }
+
+	err := seedUserEnterprises(context.Background(), uRepo, eRepo, records, &buf, fixedNow)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if userCreatedCount != 2 {
+		t.Fatalf("expected 2 users created, got %d", userCreatedCount)
+	}
+	if enterpriseCreated {
+		t.Fatal("expected enterprise creation to be skipped when enterprise_name is null/empty")
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "enterprise=none") {
+		t.Errorf("expected output to contain enterprise=none, got: %s", out)
+	}
+	if !strings.Contains(out, "2 seeded, 0 skipped, 2 total") {
+		t.Errorf("expected 2 seeded summary, got: %s", out)
+	}
+}
+
+func TestSeedUserEnterprises_ExistingUserNullEnterpriseNameSkipped(t *testing.T) {
+	var enterpriseCreated bool
+	uRepo := &mockUserRepo{
+		findUserByEmailFunc: func(ctx context.Context, email string) (entity.User, error) {
+			return entity.User{ID: 50, PublicID: "YTP-000050", Email: email}, nil
+		},
+	}
+	eRepo := &mockEnterpriseRepo{
+		createEnterpriseFunc: func(ctx context.Context, enterprise entity.Enterprise, event entity.EnterpriseAuditEvent) (entity.Enterprise, error) {
+			enterpriseCreated = true
+			return enterprise, nil
+		},
+	}
+
+	records := []UserEnterpriseRecord{
+		{
+			FullName:       "Existing Solo",
+			Email:          "existing_solo@example.com",
+			EnterpriseName: "null",
+		},
+	}
+
+	var buf bytes.Buffer
+	fixedNow := func() time.Time { return time.Unix(1700000000, 0) }
+
+	err := seedUserEnterprises(context.Background(), uRepo, eRepo, records, &buf, fixedNow)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if enterpriseCreated {
+		t.Fatal("expected no enterprise creation")
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "Skipped existing user") {
+		t.Errorf("expected skip log, got: %s", out)
+	}
+	if !strings.Contains(out, "0 seeded, 1 skipped, 1 total") {
+		t.Errorf("expected summary, got: %s", out)
+	}
+}
