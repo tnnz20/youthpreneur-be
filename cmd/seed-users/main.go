@@ -34,6 +34,7 @@ type userRepo interface {
 
 type enterpriseRepo interface {
 	CreateEnterprise(ctx context.Context, enterprise entity.Enterprise, event entity.EnterpriseAuditEvent) (entity.Enterprise, error)
+	FindEnterprises(ctx context.Context, filter entity.EnterpriseFilter) ([]entity.Enterprise, error)
 }
 
 func main() {
@@ -94,68 +95,85 @@ func seedUserEnterprises(
 	skippedCount := 0
 
 	for i, rec := range records {
-		existingUser, err := uRepo.FindUserByEmail(ctx, rec.Email)
-		if err == nil {
-			fmt.Fprintf(out, "[%d/%d] Skipped existing user: %s (public_id=%s)\n",
-				i+1, len(records), existingUser.Email, existingUser.PublicID)
-			skippedCount++
-			continue
-		}
-		if !errors.Is(err, repository.ErrUserNotFound) {
-			return fmt.Errorf("check existing user %q: %w", rec.Email, err)
-		}
-
-		passwordHash, err := bcrypt.GenerateFromPassword([]byte(rec.Password), bcrypt.DefaultCost)
-		if err != nil {
-			return fmt.Errorf("hash password for %q: %w", rec.Email, err)
-		}
-
 		var createdUser entity.User
 		userCreated := false
 
-		for range publicIDAttempts {
-			userPublicID, err := usecase.GeneratePublicID()
+		existingUser, err := uRepo.FindUserByEmail(ctx, rec.Email)
+		if err == nil {
+			ents, err := eRepo.FindEnterprises(ctx, entity.EnterpriseFilter{OwnerID: existingUser.ID})
 			if err != nil {
-				return fmt.Errorf("generate user public id: %w", err)
+				return fmt.Errorf("check enterprises for existing user %q: %w", rec.Email, err)
 			}
-
-			profile := entity.Profile{
-				FullName: rec.FullName,
-				District: rec.District,
-				Address:  rec.Address,
-			}
-
-			userToCreate := entity.User{
-				PublicID:  userPublicID,
-				Email:     rec.Email,
-				Password:  string(passwordHash),
-				Role:      entity.RoleMember,
-				IsActive:  true,
-				CreatedAt: currentTime,
-				UpdatedAt: currentTime,
-				Profile:   &profile,
-			}
-
-			user, err := uRepo.CreateUser(ctx, userToCreate)
-			switch {
-			case errors.Is(err, repository.ErrDuplicatePublicID):
+			if len(ents) > 0 {
+				fmt.Fprintf(out, "[%d/%d] Skipped existing user: %s (public_id=%s)\n",
+					i+1, len(records), existingUser.Email, existingUser.PublicID)
+				skippedCount++
 				continue
-			case errors.Is(err, repository.ErrDuplicateEmail):
-				fmt.Fprintf(out, "[%d/%d] Skipped duplicate email during creation: %s\n", i+1, len(records), rec.Email)
-				userCreated = false
-				break
-			case err != nil:
-				return fmt.Errorf("create user %q: %w", rec.Email, err)
-			default:
-				createdUser = user
-				userCreated = true
 			}
-			break
-		}
+			// User exists, but enterprise is missing; proceed to create enterprise.
+			createdUser = existingUser
+			userCreated = true
+		} else if !errors.Is(err, repository.ErrUserNotFound) {
+			return fmt.Errorf("check existing user %q: %w", rec.Email, err)
+		} else {
+			passwordHash, err := bcrypt.GenerateFromPassword([]byte(rec.Password), bcrypt.DefaultCost)
+			if err != nil {
+				return fmt.Errorf("hash password for %q: %w", rec.Email, err)
+			}
 
-		if !userCreated {
-			skippedCount++
-			continue
+			userAttemptsExhausted := true
+			duplicateEmailSkipped := false
+
+			for range publicIDAttempts {
+				userPublicID, err := usecase.GeneratePublicID()
+				if err != nil {
+					return fmt.Errorf("generate user public id: %w", err)
+				}
+
+				profile := entity.Profile{
+					FullName: rec.FullName,
+					District: rec.District,
+					Address:  rec.Address,
+				}
+
+				userToCreate := entity.User{
+					PublicID:  userPublicID,
+					Email:     rec.Email,
+					Password:  string(passwordHash),
+					Role:      entity.RoleMember,
+					IsActive:  true,
+					CreatedAt: currentTime,
+					UpdatedAt: currentTime,
+					Profile:   &profile,
+				}
+
+				user, err := uRepo.CreateUser(ctx, userToCreate)
+				switch {
+				case errors.Is(err, repository.ErrDuplicatePublicID):
+					continue
+				case errors.Is(err, repository.ErrDuplicateEmail):
+					fmt.Fprintf(out, "[%d/%d] Skipped duplicate email during creation: %s\n", i+1, len(records), rec.Email)
+					duplicateEmailSkipped = true
+					userAttemptsExhausted = false
+					break
+				case err != nil:
+					return fmt.Errorf("create user %q: %w", rec.Email, err)
+				default:
+					createdUser = user
+					userCreated = true
+					userAttemptsExhausted = false
+				}
+				break
+			}
+
+			if duplicateEmailSkipped {
+				skippedCount++
+				continue
+			}
+
+			if userAttemptsExhausted || !userCreated {
+				return fmt.Errorf("failed to allocate user public id for %q: attempts exhausted", rec.Email)
+			}
 		}
 
 		enterpriseCreated := false

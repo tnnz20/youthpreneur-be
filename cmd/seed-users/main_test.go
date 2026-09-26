@@ -34,6 +34,7 @@ func (m *mockUserRepo) CreateUser(ctx context.Context, user entity.User) (entity
 
 type mockEnterpriseRepo struct {
 	createEnterpriseFunc func(ctx context.Context, enterprise entity.Enterprise, event entity.EnterpriseAuditEvent) (entity.Enterprise, error)
+	findEnterprisesFunc  func(ctx context.Context, filter entity.EnterpriseFilter) ([]entity.Enterprise, error)
 }
 
 func (m *mockEnterpriseRepo) CreateEnterprise(ctx context.Context, enterprise entity.Enterprise, event entity.EnterpriseAuditEvent) (entity.Enterprise, error) {
@@ -42,6 +43,13 @@ func (m *mockEnterpriseRepo) CreateEnterprise(ctx context.Context, enterprise en
 	}
 	enterprise.ID = 201
 	return enterprise, nil
+}
+
+func (m *mockEnterpriseRepo) FindEnterprises(ctx context.Context, filter entity.EnterpriseFilter) ([]entity.Enterprise, error) {
+	if m.findEnterprisesFunc != nil {
+		return m.findEnterprisesFunc(ctx, filter)
+	}
+	return nil, nil
 }
 
 func TestSeedUserEnterprises_Success(t *testing.T) {
@@ -99,7 +107,11 @@ func TestSeedUserEnterprises_SkipExistingUser(t *testing.T) {
 			}, nil
 		},
 	}
-	eRepo := &mockEnterpriseRepo{}
+	eRepo := &mockEnterpriseRepo{
+		findEnterprisesFunc: func(ctx context.Context, filter entity.EnterpriseFilter) ([]entity.Enterprise, error) {
+			return []entity.Enterprise{{ID: 201, PublicID: "TPN-000001"}}, nil
+		},
+	}
 
 	records := []UserEnterpriseRecord{
 		{
@@ -124,6 +136,59 @@ func TestSeedUserEnterprises_SkipExistingUser(t *testing.T) {
 	}
 	if !strings.Contains(out, "0 seeded, 1 skipped, 1 total") {
 		t.Errorf("expected summary, got: %s", out)
+	}
+}
+
+func TestSeedUserEnterprises_ExistingUserMissingEnterpriseSeedsEnterprise(t *testing.T) {
+	uRepo := &mockUserRepo{
+		findUserByEmailFunc: func(ctx context.Context, email string) (entity.User, error) {
+			return entity.User{
+				ID:       55,
+				PublicID: "YTP-000055",
+				Email:    email,
+			}, nil
+		},
+	}
+	enterpriseCreated := false
+	eRepo := &mockEnterpriseRepo{
+		findEnterprisesFunc: func(ctx context.Context, filter entity.EnterpriseFilter) ([]entity.Enterprise, error) {
+			return nil, nil // No existing enterprise
+		},
+		createEnterpriseFunc: func(ctx context.Context, enterprise entity.Enterprise, event entity.EnterpriseAuditEvent) (entity.Enterprise, error) {
+			if enterprise.UserID != 55 {
+				t.Errorf("expected enterprise UserID 55, got %d", enterprise.UserID)
+			}
+			enterpriseCreated = true
+			enterprise.ID = 201
+			enterprise.PublicID = "TPN-000201"
+			return enterprise, nil
+		},
+	}
+
+	records := []UserEnterpriseRecord{
+		{
+			FullName:       "Existing User Missing Ent",
+			Email:          "missingent@example.com",
+			Password:       "password123",
+			EnterpriseName: "Repaired Shop",
+		},
+	}
+
+	var buf bytes.Buffer
+	fixedNow := func() time.Time { return time.Unix(1700000000, 0) }
+
+	err := seedUserEnterprises(context.Background(), uRepo, eRepo, records, &buf, fixedNow)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !enterpriseCreated {
+		t.Error("expected enterprise to be created for user with missing enterprise")
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "1 seeded, 0 skipped, 1 total") {
+		t.Errorf("expected 1 seeded, got: %s", out)
 	}
 }
 
@@ -204,5 +269,34 @@ func TestSeedUserEnterprises_DBError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "db connection failure") {
 		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestSeedUserEnterprises_UserPublicIDExhaustionReturnsError(t *testing.T) {
+	uRepo := &mockUserRepo{
+		createUserFunc: func(ctx context.Context, user entity.User) (entity.User, error) {
+			return entity.User{}, repository.ErrDuplicatePublicID
+		},
+	}
+	eRepo := &mockEnterpriseRepo{}
+
+	records := []UserEnterpriseRecord{
+		{
+			FullName:       "Exhaust User",
+			Email:          "exhaust@example.com",
+			Password:       "password123",
+			EnterpriseName: "Exhaust Store",
+		},
+	}
+
+	var buf bytes.Buffer
+	fixedNow := func() time.Time { return time.Unix(1700000000, 0) }
+
+	err := seedUserEnterprises(context.Background(), uRepo, eRepo, records, &buf, fixedNow)
+	if err == nil {
+		t.Fatal("expected error when public id attempts exhausted, got nil")
+	}
+	if !strings.Contains(err.Error(), "attempts exhausted") {
+		t.Errorf("expected 'attempts exhausted' error, got: %v", err)
 	}
 }

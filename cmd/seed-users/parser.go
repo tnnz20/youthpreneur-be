@@ -14,8 +14,6 @@ import (
 
 const (
 	defaultFallbackPassword = "Youthpreneur123!"
-	minPasswordLen          = 8
-	maxPasswordLen          = 72
 )
 
 // UserEnterpriseRecord holds parsed and normalized row data for seeding.
@@ -142,7 +140,7 @@ func parseUserEnterpriseCSV(r io.Reader) ([]UserEnterpriseRecord, error) {
 
 func normalizePassword(raw string) string {
 	raw = strings.TrimSpace(raw)
-	if len(raw) < minPasswordLen || len(raw) > maxPasswordLen || strings.HasPrefix(raw, "#") {
+	if usecase.ValidatePassword(raw) != nil || strings.HasPrefix(raw, "#") {
 		return defaultFallbackPassword
 	}
 	return raw
